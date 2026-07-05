@@ -44,18 +44,27 @@ const initial = entries.find((entry) => entry.data.current) ?? entries.find((ent
 
   <script type="application/json" id="object-data" set:html={JSON.stringify(objects)}></script>
   <script>
+    type ObjectData = {
+      id: string;
+      title: string;
+      summary: string;
+      type: string;
+      status: string;
+      year: number;
+      cover: string;
+      related: string[];
+    };
+
     const field = document.querySelector<HTMLElement>(".object-field");
     const dataNode = document.querySelector<HTMLScriptElement>("#object-data");
     if (field && dataNode) {
-      const objects = JSON.parse(dataNode.textContent || "[]");
-      const byId = new Map(objects.map((item) => [item.id, item]));
+      const objects = JSON.parse(dataNode.textContent || "[]") as ObjectData[];
+      const byId = new Map<string, ObjectData>(objects.map((item: ObjectData) => [item.id, item]));
       const relatedHost = field.querySelector<HTMLElement>("[data-related]");
       const svg = field.querySelector<SVGSVGElement>(".branch-layer");
-      const positions = [
-        [12, 18], [76, 14], [84, 58], [61, 78], [17, 72], [6, 46]
-      ];
+      const positions: Array<[number, number]> = [[12,18],[76,14],[84,58],[61,78],[17,72],[6,46]];
 
-      const drawLines = () => {
+      const drawLines = (): void => {
         if (!svg) return;
         svg.innerHTML = "";
         const focus = field.querySelector<HTMLElement>("[data-focus]");
@@ -64,7 +73,7 @@ const initial = entries.find((entry) => entry.data.current) ?? entries.find((ent
         const focusRect = focus.getBoundingClientRect();
         const x1 = focusRect.left + focusRect.width / 2 - fieldRect.left;
         const y1 = focusRect.top + focusRect.height / 2 - fieldRect.top;
-        field.querySelectorAll<HTMLElement>(".related-object").forEach((node) => {
+        field.querySelectorAll<HTMLElement>(".related-object").forEach((node: HTMLElement) => {
           const r = node.getBoundingClientRect();
           const x2 = r.left + r.width / 2 - fieldRect.left;
           const y2 = r.top + r.height / 2 - fieldRect.top;
@@ -75,7 +84,7 @@ const initial = entries.find((entry) => entry.data.current) ?? entries.find((ent
         });
       };
 
-      const render = (id) => {
+      const render = (id: string): void => {
         const item = byId.get(id);
         if (!item || !relatedHost) return;
         const title = field.querySelector<HTMLElement>("[data-focus-title]");
@@ -91,11 +100,13 @@ const initial = entries.find((entry) => entry.data.current) ?? entries.find((ent
         if (imageLink) imageLink.href = `/archive/${item.id}`;
         if (textLink) textLink.href = `/archive/${item.id}`;
 
-        const explicit = item.related.map((rid) => byId.get(rid)).filter(Boolean);
-        const fallback = objects.filter((candidate) => candidate.id !== item.id).slice(0, 6);
-        const related = (explicit.length ? explicit : fallback).slice(0, 6);
+        const explicit = item.related
+          .map((rid: string) => byId.get(rid))
+          .filter((candidate): candidate is ObjectData => Boolean(candidate));
+        const fallback = objects.filter((candidate: ObjectData) => candidate.id !== item.id).slice(0, 6);
+        const related: ObjectData[] = (explicit.length ? explicit : fallback).slice(0, 6);
         relatedHost.innerHTML = "";
-        related.forEach((relatedItem, index) => {
+        related.forEach((relatedItem: ObjectData, index: number) => {
           const button = document.createElement("button");
           button.className = "related-object";
           button.style.setProperty("--x", `${positions[index][0]}%`);
@@ -107,7 +118,8 @@ const initial = entries.find((entry) => entry.data.current) ?? entries.find((ent
         requestAnimationFrame(drawLines);
       };
 
-      render(field.dataset.initial || objects[0]?.id);
+      const firstId = field.dataset.initial || objects[0]?.id;
+      if (firstId) render(firstId);
       window.addEventListener("resize", drawLines);
     }
   </script>
