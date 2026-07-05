@@ -7,18 +7,17 @@ const entries = (await getCollection("entries", ({ data }) => !data.draft))
   .sort((a, b) => b.data.year - a.data.year || a.data.order - b.data.order);
 const types = ["all", ...new Set(entries.map((entry) => entry.data.type))];
 ---
-<BaseLayout title="Archive" description="Projects, prototypes, artworks, concepts, experiments and fragments by Ahmed Drebika.">
-  <section class="entry-head">
-    <p class="eyebrow">Everything, in one field</p>
+<BaseLayout title="Archive" description="Projects, prototypes, artworks, concepts and experiments by Ahmed Drebika.">
+  <section class="archive-head">
     <h1>Archive</h1>
-    <p class="entry-summary">Finished work and unresolved material organized by form, subject, medium and status.</p>
+    <p>{entries.length} entries</p>
   </section>
-  <section class="section">
-    <div class="filters" aria-label="Filter archive">
-      {types.map((type) => (<button class="filter" data-filter={type} aria-pressed={type === "all"}>{type}</button>))}
+  <section class="index-section archive-index">
+    <div class="text-filters" aria-label="Filter archive">
+      {types.map((type) => (<button data-filter={type} aria-pressed={type === "all"}>{type}</button>))}
     </div>
-    <div class="grid" id="archive-grid">
-      {entries.map((entry) => (<div style="display: contents" data-entry-type={entry.data.type}><EntryCard entry={entry} /></div>))}
+    <div class="index-list">
+      {entries.map((entry) => (<div data-entry-type={entry.data.type}><EntryCard entry={entry} showSummary={true} /></div>))}
     </div>
   </section>
   <script>
