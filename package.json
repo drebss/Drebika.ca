@@ -1,0 +1,17 @@
+{
+  "name": "drebika-site",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "check": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.4",
+    "astro": "^6.0.0",
+    "typescript": "^5.8.0"
+  }
+}

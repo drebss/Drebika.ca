@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200">
+  <rect width="1600" height="1200" fill="#d8d4ca"/>
+  <g fill="none" stroke="#151515" stroke-width="2">
+    <rect x="100" y="100" width="500" height="380"/>
+    <rect x="880" y="160" width="600" height="460"/>
+    <rect x="380" y="700" width="520" height="360"/>
+    <path d="M600 290 C760 290 760 390 880 390"/>
+    <path d="M1180 620 C1180 800 900 800 900 880"/>
+    <path d="M380 880 C220 880 220 480 350 480"/>
+  </g>
+  <text x="100" y="1120" fill="#151515" font-size="72" font-family="Arial">PRACTICE ARCHIVE</text>
+</svg>

@@ -1,0 +1,35 @@
+---
+import { getCollection } from "astro:content";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import EntryCard from "../../components/EntryCard.astro";
+
+const entries = (await getCollection("entries", ({ data }) => !data.draft))
+  .sort((a, b) => b.data.year - a.data.year || a.data.order - b.data.order);
+const types = ["all", ...new Set(entries.map((entry) => entry.data.type))];
+---
+<BaseLayout title="Archive" description="Projects, prototypes, artworks, concepts, experiments and fragments by Ahmed Drebika.">
+  <section class="entry-head">
+    <p class="eyebrow">Everything, in one field</p>
+    <h1>Archive</h1>
+    <p class="entry-summary">Finished work and unresolved material organized by form, subject, medium and status.</p>
+  </section>
+  <section class="section">
+    <div class="filters" aria-label="Filter archive">
+      {types.map((type) => (<button class="filter" data-filter={type} aria-pressed={type === "all"}>{type}</button>))}
+    </div>
+    <div class="grid" id="archive-grid">
+      {entries.map((entry) => (<div style="display: contents" data-entry-type={entry.data.type}><EntryCard entry={entry} /></div>))}
+    </div>
+  </section>
+  <script>
+    const buttons = document.querySelectorAll<HTMLButtonElement>("[data-filter]");
+    const entries = document.querySelectorAll<HTMLElement>("[data-entry-type]");
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter = button.dataset.filter ?? "all";
+        buttons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+        entries.forEach((entry) => { entry.hidden = filter !== "all" && entry.dataset.entryType !== filter; });
+      });
+    });
+  </script>
+</BaseLayout>

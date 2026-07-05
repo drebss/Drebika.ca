@@ -1,0 +1,106 @@
+media:
+  input: public/media
+  output: /media
+
+content:
+  - name: entries
+    label: Entries
+    type: collection
+    path: src/content/entries
+    filename: "{primary}.md"
+    view:
+      fields: [title, type, status, year, featured]
+      primary: title
+      sort: [year, title]
+      default:
+        sort: year
+        order: desc
+    fields:
+      - name: title
+        label: Title
+        type: string
+        required: true
+      - name: summary
+        label: Summary
+        type: text
+        required: true
+      - name: type
+        label: Type
+        type: select
+        required: true
+        options:
+          values: [project, prototype, artwork, concept, experiment, note, fragment]
+      - name: status
+        label: Status
+        type: select
+        required: true
+        options:
+          values: [finished, active, ongoing, prototype, study, speculative, dormant, abandoned]
+      - name: year
+        label: Year
+        type: number
+        required: true
+      - name: date
+        label: Date
+        type: date
+      - name: cover
+        label: Cover image
+        type: image
+      - name: subjects
+        label: Subjects
+        type: string
+        list: true
+      - name: media
+        label: Media
+        type: string
+        list: true
+      - name: tools
+        label: Tools
+        type: string
+        list: true
+      - name: context
+        label: Context
+        type: select
+        options:
+          values: [commissioned, professional, independent, personal, research]
+      - name: externalUrl
+        label: External URL
+        type: string
+      - name: featured
+        label: Featured
+        type: boolean
+        default: false
+      - name: current
+        label: Current
+        type: boolean
+        default: false
+      - name: order
+        label: Manual order
+        type: number
+        default: 100
+      - name: draft
+        label: Draft
+        type: boolean
+        default: true
+      - name: body
+        label: Body
+        type: rich-text
+        required: true
+
+  - name: pages
+    label: Pages
+    type: collection
+    path: src/content/pages
+    filename: "{primary}.md"
+    fields:
+      - name: title
+        label: Title
+        type: string
+        required: true
+      - name: description
+        label: Description
+        type: text
+      - name: body
+        label: Body
+        type: rich-text
+        required: true

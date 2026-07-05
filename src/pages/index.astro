@@ -1,0 +1,28 @@
+---
+import { getCollection } from "astro:content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import EntryCard from "../components/EntryCard.astro";
+
+const entries = (await getCollection("entries", ({ data }) => !data.draft))
+  .sort((a, b) => a.data.order - b.data.order || b.data.year - a.data.year);
+const current = entries.filter((entry) => entry.data.current);
+const featured = entries.filter((entry) => entry.data.featured && !entry.data.current);
+const recent = entries.slice(0, 8);
+---
+<BaseLayout>
+  <section class="hero">
+    <p class="eyebrow">Artist · Creative technologist · Montreal</p>
+    <h1>A working archive of images, systems and unfinished ideas.</h1>
+    <p>Ahmed Drebika works across spatial media, interfaces, artificial intelligence, image-making and speculative systems. This site gathers commissioned work, prototypes, artwork, research and fragments.</p>
+  </section>
+  {current.length > 0 && (
+    <section class="section">
+      <div class="section-head"><span class="eyebrow">Current</span><span class="meta">{current.length} active entries</span></div>
+      <div class="grid">{current.map((entry) => <EntryCard entry={entry} />)}</div>
+    </section>
+  )}
+  <section class="section">
+    <div class="section-head"><span class="eyebrow">Selected constellation</span><a class="meta" href="/archive">View full archive →</a></div>
+    <div class="grid">{(featured.length ? featured : recent).map((entry) => <EntryCard entry={entry} />)}</div>
+  </section>
+</BaseLayout>

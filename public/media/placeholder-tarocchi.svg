@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200">
+  <rect width="1600" height="1200" fill="#201d19"/>
+  <circle cx="800" cy="600" r="310" fill="none" stroke="#d7b46a" stroke-width="3"/>
+  <circle cx="800" cy="600" r="190" fill="none" stroke="#d7b46a" stroke-width="2"/>
+  <path d="M800 210 1090 790 510 790Z" fill="none" stroke="#d7b46a" stroke-width="3"/>
+  <text x="80" y="1120" fill="#f2f0eb" font-size="80" font-family="Arial">TAROCCHI</text>
+</svg>
