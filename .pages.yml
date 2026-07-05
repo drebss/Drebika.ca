@@ -58,6 +58,11 @@ content:
         label: Tools
         type: string
         list: true
+      - name: related
+        label: Related entry slugs
+        type: string
+        list: true
+        description: Use filenames without .md, for example tarocchi
       - name: context
         label: Context
         type: select
