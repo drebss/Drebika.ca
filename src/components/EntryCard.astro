@@ -1,13 +1,14 @@
 ---
 import type { CollectionEntry } from "astro:content";
 
-interface Props { entry: CollectionEntry<"entries">; }
-const { entry } = Astro.props;
+interface Props { entry: CollectionEntry<"entries">; showSummary?: boolean; }
+const { entry, showSummary = false } = Astro.props;
 const d = entry.data;
 ---
-<a class="card" href={`/archive/${entry.id}`}>
-  {d.cover && (<div class="card-media"><img src={d.cover} alt="" loading="lazy" /></div>)}
-  <div class="card-title"><span>{d.title}</span><span class="meta">{d.year}</span></div>
-  <p class="card-summary">{d.summary}</p>
-  <p class="meta">{d.type} · {d.status}</p>
+<a class="index-row" href={`/archive/${entry.id}`}>
+  <span class="index-year">{d.year}</span>
+  <span class="index-title">{d.title}</span>
+  <span class="index-type">{d.type}</span>
+  <span class="index-status">{d.status}</span>
+  {showSummary && <span class="index-summary">{d.summary}</span>}
 </a>
