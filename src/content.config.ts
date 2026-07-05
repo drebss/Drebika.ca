@@ -14,6 +14,7 @@ const entries = defineCollection({
     subjects: z.array(z.string()).default([]),
     media: z.array(z.string()).default([]),
     tools: z.array(z.string()).default([]),
+    related: z.array(z.string()).default([]),
     context: z.enum(["commissioned", "professional", "independent", "personal", "research"]).optional(),
     externalUrl: z.string().url().optional(),
     featured: z.boolean().default(false),
