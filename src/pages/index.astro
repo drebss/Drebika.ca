@@ -4,25 +4,31 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import EntryCard from "../components/EntryCard.astro";
 
 const entries = (await getCollection("entries", ({ data }) => !data.draft))
-  .sort((a, b) => a.data.order - b.data.order || b.data.year - a.data.year);
+  .sort((a, b) => b.data.year - a.data.year || a.data.order - b.data.order);
+const featured = entries.filter((entry) => entry.data.featured);
 const current = entries.filter((entry) => entry.data.current);
-const featured = entries.filter((entry) => entry.data.featured && !entry.data.current);
-const recent = entries.slice(0, 8);
+const lead = featured[0] ?? current[0] ?? entries[0];
 ---
 <BaseLayout>
-  <section class="hero">
-    <p class="eyebrow">Artist · Creative technologist · Montreal</p>
-    <h1>A working archive of images, systems and unfinished ideas.</h1>
-    <p>Ahmed Drebika works across spatial media, interfaces, artificial intelligence, image-making and speculative systems. This site gathers commissioned work, prototypes, artwork, research and fragments.</p>
+  <section class="intro">
+    <h1>Ahmed Drebika</h1>
+    <p>Artist and creative technologist based in Montreal. Work across interfaces, spatial media, image-making, artificial intelligence and experimental software.</p>
   </section>
-  {current.length > 0 && (
-    <section class="section">
-      <div class="section-head"><span class="eyebrow">Current</span><span class="meta">{current.length} active entries</span></div>
-      <div class="grid">{current.map((entry) => <EntryCard entry={entry} />)}</div>
-    </section>
+
+  {lead && lead.data.cover && (
+    <a class="lead-media" href={`/archive/${lead.id}`}>
+      <img src={lead.data.cover} alt="" />
+      <span>{lead.data.title}, {lead.data.year}</span>
+    </a>
   )}
-  <section class="section">
-    <div class="section-head"><span class="eyebrow">Selected constellation</span><a class="meta" href="/archive">View full archive →</a></div>
-    <div class="grid">{(featured.length ? featured : recent).map((entry) => <EntryCard entry={entry} />)}</div>
+
+  <section class="index-section">
+    <div class="index-heading">
+      <span>Index</span>
+      <a href="/archive">All entries</a>
+    </div>
+    <div class="index-list">
+      {entries.slice(0, 12).map((entry) => <EntryCard entry={entry} showSummary={true} />)}
+    </div>
   </section>
 </BaseLayout>
