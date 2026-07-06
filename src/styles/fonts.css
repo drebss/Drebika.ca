@@ -1,0 +1,31 @@
+@font-face {
+  font-family: "Heldane Text";
+  src: url("/fonts/heldane/HeldaneText-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Heldane Text";
+  src: url("/fonts/heldane/HeldaneText-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Heldane Display";
+  src: url("/fonts/heldane/HeldaneDisplay-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Heldane Display";
+  src: url("/fonts/heldane/HeldaneDisplay-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}

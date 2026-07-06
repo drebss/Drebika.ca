@@ -1,0 +1,100 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { dialProjects, type DialProject } from "../../data/navigation";
+import "../../styles/project.css";
+
+export function getStaticPaths() {
+  return dialProjects.map((project) => ({
+    params: { id: project.id },
+    props: { project },
+  }));
+}
+
+interface Props {
+  project: DialProject;
+}
+
+const { project } = Astro.props;
+---
+<BaseLayout
+  title={`${project.title} — Ahmed Drebika`}
+  description={project.description}
+>
+  <div class="project-page">
+    <header class="project-toolbar">
+      <a class="project-back" href="/grid">← Grid</a>
+    </header>
+
+    <article class="grid-project project-detail" data-project-id={project.id}>
+      <div class="grid-project__layout">
+        <header class="grid-project__head">
+          <p class="grid-project__eyebrow">{project.categoryTitle}</p>
+          <h1 class="grid-project__title">{project.title}</h1>
+          <p class="grid-project__subtitle">{project.subtitle}</p>
+          {project.descriptionHtml ? (
+            <p class="grid-project__body" set:html={project.descriptionHtml} />
+          ) : (
+            <p class="grid-project__body">{project.description}</p>
+          )}
+          {project.tags.length > 0 && (
+            <ul class="grid-project__tags">
+              {project.tags.map((tag) => (
+                <li>{tag}</li>
+              ))}
+            </ul>
+          )}
+          {project.slides && project.slides.length > 1 && (
+            <p class="grid-project__count">{project.slides.length} items</p>
+          )}
+        </header>
+
+        <div class="grid-project__media grid-project__gallery">
+          {
+            project.slides?.map((slide, slideIdx) => (
+              <figure class="grid-project__figure" data-slide-index={slideIdx}>
+                {slide.kind === "video" ? (
+                  <video
+                    class="grid-project__video"
+                    src={slide.src}
+                    muted
+                    loop
+                    playsinline
+                    preload="metadata"
+                    data-project-video
+                  />
+                ) : (
+                  <img
+                    class="grid-project__image"
+                    src={slide.src}
+                    alt={slide.title ?? project.title}
+                    loading={slideIdx === 0 ? "eager" : "lazy"}
+                  />
+                )}
+              </figure>
+            ))
+          }
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <script>
+    const videos = [...document.querySelectorAll<HTMLVideoElement>("[data-project-video]")];
+    if (videos.length) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            const video = entry.target as HTMLVideoElement;
+            if (entry.isIntersecting && entry.intersectionRatio > 0.3) {
+              video.play().catch(() => {});
+            } else {
+              video.pause();
+            }
+          });
+        },
+        { rootMargin: "-10% 0px", threshold: [0, 0.3, 0.55] },
+      );
+      videos.forEach((video) => observer.observe(video));
+    }
+  </script>
+</BaseLayout>

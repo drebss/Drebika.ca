@@ -1,0 +1,137 @@
+.project-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.project-toolbar {
+  padding: 1.25rem var(--pad);
+}
+
+.project-back {
+  font-size: var(--type-meta);
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.project-back:hover {
+  color: var(--fg);
+}
+
+.grid-project__layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 30%) minmax(0, 1fr);
+  gap: clamp(1.5rem, 3vw, 3rem);
+  min-height: min(100%, calc(100dvh - 8rem));
+  padding: clamp(2rem, 4vw, 3.5rem) var(--pad);
+  align-items: start;
+}
+
+.grid-project__head {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: min(70vh, 640px);
+  padding: 1rem 0;
+}
+
+.grid-project__eyebrow {
+  margin: 0 0 0.75rem;
+  font-size: var(--type-meta);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.grid-project__title {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-display);
+  font-size: var(--type-display-sm);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 0.98;
+}
+
+.grid-project__subtitle {
+  margin: 0 0 1rem;
+  font-size: var(--type-secondary);
+  color: var(--muted);
+}
+
+.grid-project__body {
+  margin: 0 0 1.25rem;
+  max-width: 28rem;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
+}
+
+.grid-project__body a {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.grid-project__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  list-style: none;
+  font-size: var(--type-meta);
+  color: var(--muted);
+}
+
+.grid-project__count {
+  margin: 0;
+  font-size: var(--type-meta);
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.grid-project__media {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: auto;
+  padding: 0.5rem 0;
+}
+
+.grid-project__media.grid-project__gallery {
+  align-items: flex-start;
+  min-height: auto;
+}
+
+.grid-project__gallery {
+  gap: clamp(1.25rem, 2.5vw, 2rem);
+  padding-bottom: clamp(2rem, 4vw, 3.5rem);
+}
+
+.grid-project__figure {
+  margin: 0;
+  max-width: 100%;
+}
+
+.grid-project__image,
+.grid-project__video {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: min(88vh, 1100px);
+}
+
+@media (max-width: 900px) {
+  .grid-project__layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    padding: 2rem var(--pad) 2.5rem;
+    gap: 1.5rem;
+  }
+
+  .grid-project__head,
+  .grid-project__media {
+    min-height: auto;
+  }
+}

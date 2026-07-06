@@ -1,126 +1,155 @@
 ---
-import { getCollection } from "astro:content";
 import BaseLayout from "../layouts/BaseLayout.astro";
-
-const entries = (await getCollection("entries", ({ data }) => !data.draft))
-  .sort((a, b) => a.data.order - b.data.order || b.data.year - a.data.year);
-
-const objects = entries.map((entry) => ({
-  id: entry.id,
-  title: entry.data.title,
-  summary: entry.data.summary,
-  type: entry.data.type,
-  status: entry.data.status,
-  year: entry.data.year,
-  cover: entry.data.cover ?? "",
-  related: entry.data.related,
-}));
-
-const initial = entries.find((entry) => entry.data.current) ?? entries.find((entry) => entry.data.featured) ?? entries[0];
+import { branchScrollItems, dialPayload, dialProjects, dialTree } from "../data/navigation";
+import "../styles/home.css";
 ---
-<BaseLayout>
-  <section class="relation-intro">
-    <p>Ahmed Drebika is an artist and creative technologist based in Montreal.</p>
-    <span>Select an object to move through the work.</span>
-  </section>
-
-  {initial && (
-    <section class="object-field" data-initial={initial.id}>
-      <svg class="branch-layer" aria-hidden="true"></svg>
-      <div class="focus-object" data-focus>
-        <a class="focus-image" href={`/archive/${initial.id}`} data-focus-link>
-          {initial.data.cover && <img src={initial.data.cover} alt="" data-focus-image />}
-        </a>
-        <div class="focus-caption">
-          <p class="object-meta" data-focus-meta>{initial.data.year} · {initial.data.type}</p>
-          <h1 data-focus-title>{initial.data.title}</h1>
-          <p data-focus-summary>{initial.data.summary}</p>
-          <a href={`/archive/${initial.id}`} data-focus-link-text>Open object →</a>
+<BaseLayout nav="orbit">
+  <div class="radial-home" data-radial-menu tabindex="0">
+    <aside class="radial-stage" data-radial-stage aria-label="Navigation">
+      <nav class="radial-mobile" data-mobile-nav aria-label="Projects">
+        <div class="radial-mobile__categories" role="tablist" aria-label="Categories">
+          {
+            dialTree.map((category, mainIdx) => (
+              <button
+                type="button"
+                class="radial-mobile__category"
+                role="tab"
+                data-mobile-category
+                data-main-idx={mainIdx}
+                aria-selected={mainIdx === 0 ? "true" : "false"}
+              >
+                {category.title}
+              </button>
+            ))
+          }
+        </div>
+        {
+          dialTree.map((category, mainIdx) => (
+            <ul
+              class="radial-mobile__group"
+              data-mobile-group
+              data-main-idx={mainIdx}
+              hidden={mainIdx !== 0}
+            >
+              {(category.children ?? []).map((project, projectIdx) => (
+                <li>
+                  <button
+                    type="button"
+                    class="radial-mobile__project"
+                    data-mobile-project
+                    data-main-idx={mainIdx}
+                    data-project-idx={projectIdx}
+                    data-project-id={project.id}
+                  >
+                    <span class="radial-mobile__project-title">{project.title}</span>
+                    <span class="radial-mobile__project-sub">{project.subtitle}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ))
+        }
+      </nav>
+      <div class="radial-nav-scroll" data-nav-scroll aria-hidden="true">
+        <div class="radial-nav-scroll__inner">
+          {
+            branchScrollItems.map((item, index) => {
+              const prev = index > 0 ? branchScrollItems[index - 1] : null;
+              const showGap = prev !== null && prev.mainIdx !== item.mainIdx;
+              return (
+                <>
+                  {showGap && <div class="radial-nav-snap radial-nav-snap--gap" />}
+                  <div
+                    class="radial-nav-snap"
+                    data-project-key={`${item.mainIdx}:${item.projectIdx}`}
+                    data-visual-index={item.visualIndex}
+                    data-project-id={item.id}
+                  />
+                </>
+              );
+            })
+          }
         </div>
       </div>
-      <div class="related-objects" data-related></div>
-    </section>
-  )}
+      <div class="radial-track" data-radial-track></div>
+    </aside>
 
-  <script type="application/json" id="object-data" set:html={JSON.stringify(objects)}></script>
+    <div class="radial-preview" data-radial-preview>
+      <div class="radial-preview__scroll" data-preview-scroll>
+        {
+          dialProjects.map((project) => (
+            <article
+              class="radial-project"
+              data-project-key={`${project.mainIdx}:${project.projectIdx}`}
+              data-project-id={project.id}
+            >
+              <div class="radial-project__layout">
+                <header class="radial-project__head">
+                  <p class="radial-project__eyebrow">{project.categoryTitle}</p>
+                  <h2 class="radial-project__title radial-project__title--mobile">{project.title}</h2>
+                  <p class="radial-project__subtitle radial-project__subtitle--mobile">{project.subtitle}</p>
+                  {project.descriptionHtml ? (
+                    <p class="radial-project__body" set:html={project.descriptionHtml} />
+                  ) : (
+                    <p class="radial-project__body">{project.description}</p>
+                  )}
+                  {project.tags.length > 0 && (
+                    <ul class="radial-project__tags">
+                      {project.tags.map((tag) => (
+                        <li>{tag}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {project.infoHref && (
+                    <a class="radial-project__info" href={project.infoHref}>
+                      Project info
+                    </a>
+                  )}
+                  {project.slides && project.slides.length > 1 && (
+                    <p class="radial-project__count" data-project-count>
+                      {project.slides.length} items
+                    </p>
+                  )}
+                </header>
+
+                <div class="radial-project__media" data-project-gallery>
+                  {project.slides?.map((slide, slideIdx) => (
+                    <figure
+                      class="radial-project__figure"
+                      data-slide-index={slideIdx}
+                    >
+                      {slide.kind === "video" ? (
+                        <video
+                          class="radial-project__video"
+                          src={slide.src}
+                          muted
+                          loop
+                          playsinline
+                          preload="metadata"
+                          data-autoplay-video
+                        />
+                      ) : (
+                        <img
+                          class="radial-project__image"
+                          src={slide.src}
+                          alt={slide.title ?? project.title}
+                          loading="lazy"
+                        />
+                      )}
+                    </figure>
+                  ))}
+                </div>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+    </div>
+
+    <script type="application/json" data-radial-data set:html={JSON.stringify(dialPayload)}></script>
+  </div>
+
   <script>
-    type ObjectData = {
-      id: string;
-      title: string;
-      summary: string;
-      type: string;
-      status: string;
-      year: number;
-      cover: string;
-      related: string[];
-    };
-
-    const field = document.querySelector<HTMLElement>(".object-field");
-    const dataNode = document.querySelector<HTMLScriptElement>("#object-data");
-    if (field && dataNode) {
-      const objects = JSON.parse(dataNode.textContent || "[]") as ObjectData[];
-      const byId = new Map<string, ObjectData>(objects.map((item: ObjectData) => [item.id, item]));
-      const relatedHost = field.querySelector<HTMLElement>("[data-related]");
-      const svg = field.querySelector<SVGSVGElement>(".branch-layer");
-      const positions: Array<[number, number]> = [[12,18],[76,14],[84,58],[61,78],[17,72],[6,46]];
-
-      const drawLines = (): void => {
-        if (!svg) return;
-        svg.innerHTML = "";
-        const focus = field.querySelector<HTMLElement>("[data-focus]");
-        if (!focus) return;
-        const fieldRect = field.getBoundingClientRect();
-        const focusRect = focus.getBoundingClientRect();
-        const x1 = focusRect.left + focusRect.width / 2 - fieldRect.left;
-        const y1 = focusRect.top + focusRect.height / 2 - fieldRect.top;
-        field.querySelectorAll<HTMLElement>(".related-object").forEach((node: HTMLElement) => {
-          const r = node.getBoundingClientRect();
-          const x2 = r.left + r.width / 2 - fieldRect.left;
-          const y2 = r.top + r.height / 2 - fieldRect.top;
-          const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-          const mx = (x1 + x2) / 2;
-          line.setAttribute("d", `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
-          svg.appendChild(line);
-        });
-      };
-
-      const render = (id: string): void => {
-        const item = byId.get(id);
-        if (!item || !relatedHost) return;
-        const title = field.querySelector<HTMLElement>("[data-focus-title]");
-        const summary = field.querySelector<HTMLElement>("[data-focus-summary]");
-        const meta = field.querySelector<HTMLElement>("[data-focus-meta]");
-        const image = field.querySelector<HTMLImageElement>("[data-focus-image]");
-        const imageLink = field.querySelector<HTMLAnchorElement>("[data-focus-link]");
-        const textLink = field.querySelector<HTMLAnchorElement>("[data-focus-link-text]");
-        if (title) title.textContent = item.title;
-        if (summary) summary.textContent = item.summary;
-        if (meta) meta.textContent = `${item.year} · ${item.type}`;
-        if (image) { image.src = item.cover; image.hidden = !item.cover; }
-        if (imageLink) imageLink.href = `/archive/${item.id}`;
-        if (textLink) textLink.href = `/archive/${item.id}`;
-
-        const explicit = item.related
-          .map((rid: string) => byId.get(rid))
-          .filter((candidate): candidate is ObjectData => Boolean(candidate));
-        const fallback = objects.filter((candidate: ObjectData) => candidate.id !== item.id).slice(0, 6);
-        const related: ObjectData[] = (explicit.length ? explicit : fallback).slice(0, 6);
-        relatedHost.innerHTML = "";
-        related.forEach((relatedItem: ObjectData, index: number) => {
-          const button = document.createElement("button");
-          button.className = "related-object";
-          button.style.setProperty("--x", `${positions[index][0]}%`);
-          button.style.setProperty("--y", `${positions[index][1]}%`);
-          button.innerHTML = `${relatedItem.cover ? `<img src="${relatedItem.cover}" alt="">` : ""}<span>${relatedItem.title}</span><small>${relatedItem.year} · ${relatedItem.type}</small>`;
-          button.addEventListener("click", () => render(relatedItem.id));
-          relatedHost.appendChild(button);
-        });
-        requestAnimationFrame(drawLines);
-      };
-
-      const firstId = field.dataset.initial || objects[0]?.id;
-      if (firstId) render(firstId);
-      window.addEventListener("resize", drawLines);
-    }
+    import "../scripts/radial-menu.ts";
   </script>
 </BaseLayout>

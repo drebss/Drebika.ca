@@ -1,0 +1,121 @@
+.grid-home {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:has(.grid-home) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body:has(.grid-home) main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+body:has(.grid-home) .site-header,
+body:has(.grid-home) .site-footer {
+  flex: 0 0 auto;
+}
+
+.grid-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem 2rem;
+  padding: 1.25rem var(--pad);
+}
+
+.grid-toolbar__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--type-display-md);
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.grid-toolbar .text-filters {
+  padding: 0;
+}
+
+.grid-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.grid-index {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: clamp(1.25rem, 2.5vw, 2rem) clamp(1rem, 2vw, 1.5rem);
+  align-items: start;
+  padding: clamp(1.5rem, 3vw, 2.5rem) var(--pad) clamp(2.5rem, 5vw, 4rem);
+}
+
+.grid-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.grid-cell:hover {
+  opacity: 1;
+}
+
+.grid-cell__media {
+  width: 100%;
+}
+
+.grid-cell__image,
+.grid-cell__video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.grid-cell__caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: var(--type-meta);
+  line-height: var(--leading-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.grid-cell__index,
+.grid-cell__year {
+  color: var(--muted);
+}
+
+.grid-cell__title {
+  font-weight: 400;
+}
+
+.grid-cell__subtitle {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 600px) {
+  .grid-index {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 1.25rem 0.85rem;
+  }
+}

@@ -1,18 +1,22 @@
 ---
+import "../styles/fonts.css";
 import "../styles/global.css";
-import "../styles/relations.css";
+import { siteLinks } from "../data/site";
 
 interface Props {
   title?: string;
   description?: string;
+  nav?: "orbit" | "grid" | "info";
 }
 
 const {
   title = "Ahmed Drebika",
   description = "Artist and creative technologist working across interfaces, spatial media, artificial intelligence and image-making.",
+  nav,
 } = Astro.props;
 
 const pageTitle = title === "Ahmed Drebika" ? title : `${title} — Ahmed Drebika`;
+const year = new Date().getFullYear();
 ---
 <!doctype html>
 <html lang="en">
@@ -25,18 +29,27 @@ const pageTitle = title === "Ahmed Drebika" ? title : `${title} — Ahmed Drebik
     <title>{pageTitle}</title>
   </head>
   <body>
+    <div class="corner-frame" aria-hidden="true">
+      <span class="corner-frame__pill corner-frame__pill--tl"></span>
+      <span class="corner-frame__pill corner-frame__pill--tr"></span>
+      <span class="corner-frame__pill corner-frame__pill--bl"></span>
+      <span class="corner-frame__pill corner-frame__pill--br"></span>
+    </div>
     <header class="site-header">
-      <a href="/" aria-label="Ahmed Drebika home">Ahmed Drebika</a>
+      <a href="/" class="site-logo" aria-label="Ahmed Drebika home">Ahmed Drebika</a>
       <nav class="site-nav" aria-label="Main navigation">
-        <a href="/archive">Archive</a>
-        <a href="/about">About</a>
+        <a href="/" class:list={[{ "is-active": nav === "orbit" }]}>Orbit</a>
+        <a href="/grid" class:list={[{ "is-active": nav === "grid" }]}>Grid</a>
+        <a href="/about" class:list={[{ "is-active": nav === "info" }]}>Info</a>
       </nav>
     </header>
     <main><slot /></main>
     <footer class="site-footer">
-      <span>Ahmed Drebika</span>
-      <span>Montreal, Canada</span>
-      <a href="mailto:hello@drebika.ca">hello@drebika.ca</a>
+      <p class="site-footer__year">{year}</p>
+      <nav class="site-footer__links" aria-label="Contact">
+        <a href={siteLinks.instagram} target="_blank" rel="noopener noreferrer">Instagram</a>
+        <a href={`mailto:${siteLinks.email}`}>Mail</a>
+      </nav>
     </footer>
   </body>
 </html>

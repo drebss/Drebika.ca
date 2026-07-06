@@ -1,0 +1,103 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { dialProjects, dialTree } from "../../data/navigation";
+import "../../styles/grid.css";
+
+const categories = [{ id: "all", title: "All" }, ...dialTree.map((c) => ({ id: c.id, title: c.title }))];
+
+function projectYear(subtitle: string): string {
+  const match = subtitle.match(/\b(19|20)\d{2}\b/);
+  return match?.[0] ?? "";
+}
+
+function projectIndex(n: number): string {
+  return String(n).padStart(3, "0");
+}
+---
+<BaseLayout title="Grid" description="Projects, prototypes, artworks, concepts and experiments by Ahmed Drebika." nav="grid">
+  <div class="grid-home" data-grid-page>
+    <header class="grid-toolbar">
+      <h1 class="grid-toolbar__title">Grid</h1>
+      <div class="text-filters" aria-label="Filter grid">
+        {categories.map((category) => (
+          <button
+            type="button"
+            data-filter={category.id}
+            aria-pressed={category.id === "all" ? "true" : "false"}
+          >
+            {category.title}
+          </button>
+        ))}
+      </div>
+    </header>
+
+    <div class="grid-scroll" data-grid-scroll>
+      <div class="grid-index">
+        {
+          dialProjects.map((project, index) => {
+            const hero = project.slides?.[0];
+            const year = projectYear(project.subtitle);
+            return (
+              <a
+                class="grid-cell"
+                href={`/projects/${project.id}`}
+                data-category-id={project.categoryId}
+              >
+                <div class="grid-cell__media">
+                  {hero &&
+                    (hero.kind === "video" ? (
+                      <video
+                        class="grid-cell__video"
+                        src={hero.src}
+                        muted
+                        loop
+                        playsinline
+                        preload="metadata"
+                        data-grid-cover-video
+                      />
+                    ) : (
+                      <img
+                        class="grid-cell__image"
+                        src={hero.src}
+                        alt={project.title}
+                        loading="lazy"
+                      />
+                    ))}
+                </div>
+                <div class="grid-cell__caption">
+                  <span class="grid-cell__index">{projectIndex(index + 1)}</span>
+                  <span class="grid-cell__title">{project.title}</span>
+                  <span class="grid-cell__subtitle">{project.subtitle}</span>
+                  {year && <span class="grid-cell__year">{year}</span>}
+                </div>
+              </a>
+            );
+          })
+        }
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const buttons = document.querySelectorAll<HTMLButtonElement>("[data-filter]");
+    const cells = document.querySelectorAll<HTMLElement>("[data-category-id]");
+
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter = button.dataset.filter ?? "all";
+        buttons.forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+        cells.forEach((cell) => {
+          cell.hidden = filter !== "all" && cell.dataset.categoryId !== filter;
+        });
+      });
+    });
+
+    const coverVideos = [...document.querySelectorAll<HTMLVideoElement>("[data-grid-cover-video]")];
+    coverVideos.forEach((video) => {
+      const cell = video.closest<HTMLElement>(".grid-cell");
+      if (!cell) return;
+      cell.addEventListener("mouseenter", () => video.play().catch(() => {}));
+      cell.addEventListener("mouseleave", () => video.pause());
+    });
+  </script>
+</BaseLayout>

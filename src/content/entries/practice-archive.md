@@ -18,7 +18,7 @@ context: personal
 featured: true
 current: true
 order: 1
-draft: false
+draft: true
 ---
 
 This website is itself an ongoing prototype.

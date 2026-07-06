@@ -1,0 +1,11 @@
+---
+import { dialProjects } from "../../data/navigation";
+
+export function getStaticPaths() {
+  return dialProjects.map((project) => ({
+    params: { id: project.id },
+  }));
+}
+
+return Astro.redirect(`/projects/${Astro.params.id}`, 301);
+---

@@ -1,36 +1,25 @@
 ---
 title: Tarocchi
-summary: A visual and interactive project drawing on tarot, symbolism and constructed systems of interpretation.
-type: project
-status: finished
+summary: WIP AI tarot reading tool that interprets card spreads using natural language prompts.
+type: prototype
+status: prototype
 year: 2024
-cover: /media/placeholder-tarocchi.svg
+cover: /media/projects/tarocchi/02.png
 subjects:
-  - symbolism
-  - divination
-  - interfaces
+  - art direction
+  - interactive experience
+  - AI
+  - software development
 media:
-  - web
+  - mobile
   - image
 tools:
-  - 3D
-  - creative coding
+  - React Native
 context: independent
 featured: true
-current: false
-order: 10
+current: true
+order: 1
 draft: false
 ---
 
-Tarocchi is presented here as both a completed work and a node in a longer
-investigation of symbolism, generative systems and interfaces for interpretation.
-
-## Context
-
-Replace this starter text with the original project description, process,
-images and related research.
-
-## Relationships
-
-This entry can later connect to visual studies, prototypes or notes that grew
-from the same research.
+WIP AI tarot reading tool that interprets card spreads using natural language prompts. Users input a question, select a spread, and receive a detailed, symbolic reading drawn from both traditional tarot meanings and advanced interpretive logic. Developed in React Native running on iPhone.

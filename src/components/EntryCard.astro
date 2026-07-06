@@ -5,7 +5,7 @@ interface Props { entry: CollectionEntry<"entries">; showSummary?: boolean; }
 const { entry, showSummary = false } = Astro.props;
 const d = entry.data;
 ---
-<a class="index-row" href={`/archive/${entry.id}`}>
+<a class="index-row" href={`/projects/${entry.id}`}>
   <span class="index-year">{d.year}</span>
   <span class="index-title">{d.title}</span>
   <span class="index-type">{d.type}</span>
