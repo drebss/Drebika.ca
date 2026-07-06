@@ -5,6 +5,14 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 const entries = (await getCollection("entries", ({ data }) => !data.draft))
   .sort((a, b) => a.data.order - b.data.order || b.data.year - a.data.year);
 
+const domainFor = (entry: (typeof entries)[number]) => {
+  if (entry.data.type === "artwork") return "Art";
+  if (["prototype", "concept", "experiment"].includes(entry.data.type)) return "Prototypes";
+  if (["commissioned", "professional"].includes(entry.data.context ?? "")) return "Commercial";
+  if (["note", "fragment"].includes(entry.data.type) || entry.data.context === "research") return "Research";
+  return "Projects";
+};
+
 const objects = entries.map((entry) => ({
   id: entry.id,
   title: entry.data.title,
@@ -13,38 +21,83 @@ const objects = entries.map((entry) => ({
   status: entry.data.status,
   year: entry.data.year,
   cover: entry.data.cover ?? "",
-  related: entry.data.related,
+  domain: domainFor(entry),
 }));
 
-const initial = entries.find((entry) => entry.data.current) ?? entries.find((entry) => entry.data.featured) ?? entries[0];
+const domains = [...new Set(objects.map((item) => item.domain))];
+const initial = objects.find((item) => entries.find((entry) => entry.id === item.id)?.data.current)
+  ?? objects.find((item) => entries.find((entry) => entry.id === item.id)?.data.featured)
+  ?? objects[0];
 ---
 <BaseLayout>
-  <section class="relation-intro">
-    <p>Ahmed Drebika is an artist and creative technologist based in Montreal.</p>
-    <span>Select an object to move through the work.</span>
+  <section class="portfolio-shell" data-portfolio data-initial={initial?.id ?? ""}>
+    <div class="portfolio-bar">
+      <p>Artist and creative technologist, Montreal</p>
+      <div class="view-switch" role="group" aria-label="Portfolio view">
+        <button type="button" data-view-button="orbit" aria-pressed="true">Orbit</button>
+        <button type="button" data-view-button="grid" aria-pressed="false">Grid</button>
+      </div>
+    </div>
+
+    <div class="orbit-view" data-view="orbit">
+      <aside class="orbit-panel" aria-label="Project index">
+        <div class="orbit-axis" aria-hidden="true"></div>
+        <div class="orbit-lanes">
+          <div class="orbit-lane orbit-lane--domain" data-lane="domain">
+            <span class="lane-label">Field</span>
+            <div class="lane-items"></div>
+          </div>
+          <div class="orbit-lane orbit-lane--group" data-lane="group">
+            <span class="lane-label">Collection</span>
+            <div class="lane-items"></div>
+          </div>
+          <div class="orbit-lane orbit-lane--object" data-lane="object">
+            <span class="lane-label">Object</span>
+            <div class="lane-items"></div>
+          </div>
+        </div>
+        <div class="orbit-path" data-orbit-path></div>
+      </aside>
+
+      <article class="orbit-stage" data-stage>
+        <a class="stage-media" data-stage-link href={initial ? `/archive/${initial.id}` : "/archive"}>
+          {initial?.cover && <img src={initial.cover} alt="" data-stage-image />}
+        </a>
+        <div class="stage-caption">
+          <div>
+            <p data-stage-meta>{initial ? `${initial.domain} · ${initial.year}` : ""}</p>
+            <h1 data-stage-title>{initial?.title}</h1>
+          </div>
+          <p data-stage-summary>{initial?.summary}</p>
+          <a data-stage-text-link href={initial ? `/archive/${initial.id}` : "/archive"}>Open project ↗</a>
+        </div>
+      </article>
+    </div>
+
+    <div class="grid-view" data-view="grid" hidden>
+      <div class="grid-filters" aria-label="Filter projects">
+        <button type="button" data-filter="All" aria-pressed="true">All</button>
+        {domains.map((domain) => <button type="button" data-filter={domain} aria-pressed="false">{domain}</button>)}
+      </div>
+      <div class="work-grid" data-grid>
+        {objects.map((item, index) => (
+          <a class="work-card" href={`/archive/${item.id}`} data-domain={item.domain} style={`--i:${index}`}>
+            <div class="work-card-media">
+              {item.cover ? <img src={item.cover} alt="" loading={index < 4 ? "eager" : "lazy"} /> : <span>{String(index + 1).padStart(2, "0")}</span>}
+            </div>
+            <div class="work-card-caption">
+              <span>{item.title}</span>
+              <small>{item.domain} · {item.year}</small>
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
   </section>
 
-  {initial && (
-    <section class="object-field" data-initial={initial.id}>
-      <svg class="branch-layer" aria-hidden="true"></svg>
-      <div class="focus-object" data-focus>
-        <a class="focus-image" href={`/archive/${initial.id}`} data-focus-link>
-          {initial.data.cover && <img src={initial.data.cover} alt="" data-focus-image />}
-        </a>
-        <div class="focus-caption">
-          <p class="object-meta" data-focus-meta>{initial.data.year} · {initial.data.type}</p>
-          <h1 data-focus-title>{initial.data.title}</h1>
-          <p data-focus-summary>{initial.data.summary}</p>
-          <a href={`/archive/${initial.id}`} data-focus-link-text>Open object →</a>
-        </div>
-      </div>
-      <div class="related-objects" data-related></div>
-    </section>
-  )}
-
-  <script type="application/json" id="object-data" set:html={JSON.stringify(objects)}></script>
+  <script type="application/json" id="portfolio-data" set:html={JSON.stringify(objects)}></script>
   <script>
-    type ObjectData = {
+    type PortfolioItem = {
       id: string;
       title: string;
       summary: string;
@@ -52,75 +105,137 @@ const initial = entries.find((entry) => entry.data.current) ?? entries.find((ent
       status: string;
       year: number;
       cover: string;
-      related: string[];
+      domain: string;
     };
 
-    const field = document.querySelector<HTMLElement>(".object-field");
-    const dataNode = document.querySelector<HTMLScriptElement>("#object-data");
-    if (field && dataNode) {
-      const objects = JSON.parse(dataNode.textContent || "[]") as ObjectData[];
-      const byId = new Map<string, ObjectData>(objects.map((item: ObjectData) => [item.id, item]));
-      const relatedHost = field.querySelector<HTMLElement>("[data-related]");
-      const svg = field.querySelector<SVGSVGElement>(".branch-layer");
-      const positions: Array<[number, number]> = [[12,18],[76,14],[84,58],[61,78],[17,72],[6,46]];
+    const root = document.querySelector<HTMLElement>("[data-portfolio]");
+    const dataNode = document.querySelector<HTMLScriptElement>("#portfolio-data");
 
-      const drawLines = (): void => {
-        if (!svg) return;
-        svg.innerHTML = "";
-        const focus = field.querySelector<HTMLElement>("[data-focus]");
-        if (!focus) return;
-        const fieldRect = field.getBoundingClientRect();
-        const focusRect = focus.getBoundingClientRect();
-        const x1 = focusRect.left + focusRect.width / 2 - fieldRect.left;
-        const y1 = focusRect.top + focusRect.height / 2 - fieldRect.top;
-        field.querySelectorAll<HTMLElement>(".related-object").forEach((node: HTMLElement) => {
-          const r = node.getBoundingClientRect();
-          const x2 = r.left + r.width / 2 - fieldRect.left;
-          const y2 = r.top + r.height / 2 - fieldRect.top;
-          const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-          const mx = (x1 + x2) / 2;
-          line.setAttribute("d", `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`);
-          svg.appendChild(line);
+    if (root && dataNode) {
+      const items = JSON.parse(dataNode.textContent || "[]") as PortfolioItem[];
+      const views = root.querySelectorAll<HTMLElement>("[data-view]");
+      const viewButtons = root.querySelectorAll<HTMLButtonElement>("[data-view-button]");
+      const stageImage = root.querySelector<HTMLImageElement>("[data-stage-image]");
+      const stageTitle = root.querySelector<HTMLElement>("[data-stage-title]");
+      const stageMeta = root.querySelector<HTMLElement>("[data-stage-meta]");
+      const stageSummary = root.querySelector<HTMLElement>("[data-stage-summary]");
+      const stageLink = root.querySelector<HTMLAnchorElement>("[data-stage-link]");
+      const stageTextLink = root.querySelector<HTMLAnchorElement>("[data-stage-text-link]");
+      const path = root.querySelector<HTMLElement>("[data-orbit-path]");
+
+      let activeDomain = items.find((item) => item.id === root.dataset.initial)?.domain ?? items[0]?.domain ?? "";
+      let activeGroup = "";
+      let activeId = root.dataset.initial || items[0]?.id || "";
+
+      const groupsFor = (domain: string): string[] => {
+        const matching = items.filter((item) => item.domain === domain);
+        if (domain === "Art") return [...new Set(matching.map((item) => String(item.year)))];
+        return matching.map((item) => item.title);
+      };
+
+      const objectsFor = (domain: string, group: string): PortfolioItem[] => {
+        if (domain === "Art") return items.filter((item) => item.domain === domain && String(item.year) === group);
+        return items.filter((item) => item.domain === domain && item.title === group);
+      };
+
+      const setStage = (item: PortfolioItem): void => {
+        activeId = item.id;
+        if (stageTitle) stageTitle.textContent = item.title;
+        if (stageMeta) stageMeta.textContent = `${item.domain} · ${item.year} · ${item.type}`;
+        if (stageSummary) stageSummary.textContent = item.summary;
+        if (stageImage) {
+          stageImage.src = item.cover;
+          stageImage.hidden = !item.cover;
+        }
+        if (stageLink) stageLink.href = `/archive/${item.id}`;
+        if (stageTextLink) stageTextLink.href = `/archive/${item.id}`;
+        root.querySelectorAll<HTMLButtonElement>(".orbit-item").forEach((button) => {
+          button.classList.toggle("is-current", button.dataset.id === item.id);
         });
       };
 
-      const render = (id: string): void => {
-        const item = byId.get(id);
-        if (!item || !relatedHost) return;
-        const title = field.querySelector<HTMLElement>("[data-focus-title]");
-        const summary = field.querySelector<HTMLElement>("[data-focus-summary]");
-        const meta = field.querySelector<HTMLElement>("[data-focus-meta]");
-        const image = field.querySelector<HTMLImageElement>("[data-focus-image]");
-        const imageLink = field.querySelector<HTMLAnchorElement>("[data-focus-link]");
-        const textLink = field.querySelector<HTMLAnchorElement>("[data-focus-link-text]");
-        if (title) title.textContent = item.title;
-        if (summary) summary.textContent = item.summary;
-        if (meta) meta.textContent = `${item.year} · ${item.type}`;
-        if (image) { image.src = item.cover; image.hidden = !item.cover; }
-        if (imageLink) imageLink.href = `/archive/${item.id}`;
-        if (textLink) textLink.href = `/archive/${item.id}`;
-
-        const explicit = item.related
-          .map((rid: string) => byId.get(rid))
-          .filter((candidate): candidate is ObjectData => Boolean(candidate));
-        const fallback = objects.filter((candidate: ObjectData) => candidate.id !== item.id).slice(0, 6);
-        const related: ObjectData[] = (explicit.length ? explicit : fallback).slice(0, 6);
-        relatedHost.innerHTML = "";
-        related.forEach((relatedItem: ObjectData, index: number) => {
+      const populateLane = (name: string, labels: string[], onSelect: (label: string) => void, current: string): void => {
+        const host = root.querySelector<HTMLElement>(`[data-lane="${name}"] .lane-items`);
+        if (!host) return;
+        host.innerHTML = "";
+        labels.forEach((label, index) => {
           const button = document.createElement("button");
-          button.className = "related-object";
-          button.style.setProperty("--x", `${positions[index][0]}%`);
-          button.style.setProperty("--y", `${positions[index][1]}%`);
-          button.innerHTML = `${relatedItem.cover ? `<img src="${relatedItem.cover}" alt="">` : ""}<span>${relatedItem.title}</span><small>${relatedItem.year} · ${relatedItem.type}</small>`;
-          button.addEventListener("click", () => render(relatedItem.id));
-          relatedHost.appendChild(button);
+          button.type = "button";
+          button.className = "orbit-item";
+          button.textContent = label;
+          button.style.setProperty("--n", String(index));
+          button.classList.toggle("is-active", label === current);
+          button.addEventListener("mouseenter", () => onSelect(label));
+          button.addEventListener("focus", () => onSelect(label));
+          button.addEventListener("click", () => onSelect(label));
+          host.appendChild(button);
         });
-        requestAnimationFrame(drawLines);
       };
 
-      const firstId = field.dataset.initial || objects[0]?.id;
-      if (firstId) render(firstId);
-      window.addEventListener("resize", drawLines);
+      const renderObjects = (): void => {
+        const related = objectsFor(activeDomain, activeGroup);
+        const host = root.querySelector<HTMLElement>('[data-lane="object"] .lane-items');
+        if (!host) return;
+        host.innerHTML = "";
+        related.forEach((item, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "orbit-item orbit-item--object";
+          button.textContent = item.title;
+          button.dataset.id = item.id;
+          button.style.setProperty("--n", String(index));
+          button.classList.toggle("is-current", item.id === activeId);
+          button.addEventListener("mouseenter", () => setStage(item));
+          button.addEventListener("focus", () => setStage(item));
+          button.addEventListener("click", () => setStage(item));
+          host.appendChild(button);
+        });
+        const next = related.find((item) => item.id === activeId) ?? related[0];
+        if (next) setStage(next);
+      };
+
+      const selectGroup = (group: string): void => {
+        activeGroup = group;
+        root.querySelectorAll<HTMLElement>('[data-lane="group"] .orbit-item').forEach((node) => node.classList.toggle("is-active", node.textContent === group));
+        renderObjects();
+        if (path) path.textContent = `${activeDomain} / ${activeGroup}`;
+      };
+
+      const selectDomain = (domain: string): void => {
+        activeDomain = domain;
+        root.querySelectorAll<HTMLElement>('[data-lane="domain"] .orbit-item').forEach((node) => node.classList.toggle("is-active", node.textContent === domain));
+        const groups = groupsFor(domain);
+        activeGroup = groups[0] ?? "";
+        populateLane("group", groups, selectGroup, activeGroup);
+        selectGroup(activeGroup);
+      };
+
+      populateLane("domain", [...new Set(items.map((item) => item.domain))], selectDomain, activeDomain);
+      const initialItem = items.find((item) => item.id === activeId);
+      const initialGroups = groupsFor(activeDomain);
+      activeGroup = initialItem ? (activeDomain === "Art" ? String(initialItem.year) : initialItem.title) : (initialGroups[0] ?? "");
+      populateLane("group", initialGroups, selectGroup, activeGroup);
+      selectGroup(activeGroup);
+
+      viewButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const next = button.dataset.viewButton;
+          views.forEach((view) => view.hidden = view.dataset.view !== next);
+          viewButtons.forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
+          root.dataset.mode = next;
+        });
+      });
+
+      root.querySelectorAll<HTMLButtonElement>("[data-filter]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const filter = button.dataset.filter || "All";
+          root.querySelectorAll<HTMLButtonElement>("[data-filter]").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
+          root.querySelectorAll<HTMLElement>(".work-card").forEach((card) => {
+            card.hidden = filter !== "All" && card.dataset.domain !== filter;
+          });
+          if (filter !== "All") activeDomain = filter;
+        });
+      });
     }
   </script>
 </BaseLayout>
