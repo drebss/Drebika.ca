@@ -42,52 +42,6 @@ button { font: inherit; text-transform: inherit; letter-spacing: inherit; }
 
 img, video { display: block; width: 100%; height: auto; }
 
-.corner-frame {
-  position: fixed;
-  inset: 0;
-  z-index: 150;
-  pointer-events: none;
-}
-
-.corner-frame__pill {
-  position: absolute;
-  width: 2.25rem;
-  height: 2.25rem;
-  border: 0 solid #fff;
-}
-
-.corner-frame__pill--tl {
-  top: calc(var(--pad) * 0.6);
-  left: calc(var(--pad) * 0.6);
-  border-top-width: 1.5px;
-  border-left-width: 1.5px;
-  border-top-left-radius: 1.125rem;
-}
-
-.corner-frame__pill--tr {
-  top: calc(var(--pad) * 0.6);
-  right: calc(var(--pad) * 0.6);
-  border-top-width: 1.5px;
-  border-right-width: 1.5px;
-  border-top-right-radius: 1.125rem;
-}
-
-.corner-frame__pill--bl {
-  bottom: calc(var(--pad) * 0.6);
-  left: calc(var(--pad) * 0.6);
-  border-bottom-width: 1.5px;
-  border-left-width: 1.5px;
-  border-bottom-left-radius: 1.125rem;
-}
-
-.corner-frame__pill--br {
-  bottom: calc(var(--pad) * 0.6);
-  right: calc(var(--pad) * 0.6);
-  border-bottom-width: 1.5px;
-  border-right-width: 1.5px;
-  border-bottom-right-radius: 1.125rem;
-}
-
 main { min-height: calc(100vh - 3.5rem); }
 
 .site-header {

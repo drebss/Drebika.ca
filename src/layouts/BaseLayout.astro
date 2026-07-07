@@ -6,7 +6,7 @@ import { siteLinks } from "../data/site";
 interface Props {
   title?: string;
   description?: string;
-  nav?: "orbit" | "grid" | "info";
+  nav?: "home" | "grid" | "info";
 }
 
 const {
@@ -29,16 +29,10 @@ const year = new Date().getFullYear();
     <title>{pageTitle}</title>
   </head>
   <body>
-    <div class="corner-frame" aria-hidden="true">
-      <span class="corner-frame__pill corner-frame__pill--tl"></span>
-      <span class="corner-frame__pill corner-frame__pill--tr"></span>
-      <span class="corner-frame__pill corner-frame__pill--bl"></span>
-      <span class="corner-frame__pill corner-frame__pill--br"></span>
-    </div>
     <header class="site-header">
       <a href="/" class="site-logo" aria-label="Ahmed Drebika home">Ahmed Drebika</a>
       <nav class="site-nav" aria-label="Main navigation">
-        <a href="/" class:list={[{ "is-active": nav === "orbit" }]}>Orbit</a>
+        <a href="/" class:list={[{ "is-active": nav === "home" }]}>Home</a>
         <a href="/grid" class:list={[{ "is-active": nav === "grid" }]}>Grid</a>
         <a href="/about" class:list={[{ "is-active": nav === "info" }]}>Info</a>
       </nav>

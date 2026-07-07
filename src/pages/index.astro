@@ -3,7 +3,7 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import { branchScrollItems, dialPayload, dialProjects, dialTree } from "../data/navigation";
 import "../styles/home.css";
 ---
-<BaseLayout nav="orbit">
+<BaseLayout nav="home">
   <div class="radial-home" data-radial-menu tabindex="0">
     <aside class="radial-stage" data-radial-stage aria-label="Navigation">
       <nav class="radial-mobile" data-mobile-nav aria-label="Projects">
@@ -72,6 +72,7 @@ import "../styles/home.css";
         </div>
       </div>
       <div class="radial-track" data-radial-track></div>
+      <p class="radial-name">Ahmed Drebika</p>
     </aside>
 
     <div class="radial-preview" data-radial-preview>

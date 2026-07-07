@@ -1,8 +1,9 @@
 export type RadialSlide = {
   id: string;
+  kind?: "image" | "video";
+  src?: string;
   title?: string;
   subtitle?: string;
-  image: string;
 };
 
 export type RadialItem = {
@@ -27,24 +28,39 @@ type BranchEntry = {
   categoryStart: boolean;
 };
 
-type ActiveProject = {
+type ActiveProject = { mainIdx: number; projectIdx: number };
+
+type SectionDatum = {
+  el: HTMLElement;
   mainIdx: number;
   projectIdx: number;
+  key: string;
+  id: string;
+  visualIndex: number;
 };
+
+type CategoryRange = { vStart: number; vEnd: number };
+type Geometry = { cx: number; baseR: number; mainRadius: number; branchRadius: number; cy: number };
+type Driver = "fan" | "preview";
 
 const CONFIG = {
   stepDeg: 16,
-  mainRadius: 0.76,
-  branchRadius: 1.34,
-  anchor: 0.76,
-  stagePadX: 0,
+  mainRadiusMin: 0.36,
+  mainRadiusMax: 0.58,
+  branchRingMin: 0.42,
   radiusMax: 260,
   radiusScale: 0.44,
   categoryGap: 0.42,
   fadePower: 0.28,
   centerWindow: 0.38,
-  itemPitch: 56,
-  syncLockMs: 480,
+  // How far (fraction of a viewport) the fan stays locked on the active project
+  // before handing off to the next while reading the preview.
+  handoffFraction: 0.62,
+  // Fan scrubbing feel.
+  fanWheel: 0.0052, // wheel delta (px) -> project units
+  fanDrag: 0.011, // pointer drag (px) -> project units
+  fanEase: 0.2, // per-frame approach toward the target (smoothing)
+  fanSettleMs: 120, // idle before snapping to the nearest project
 };
 
 function buildBranchIndex(tree: RadialItem[], gap: number): BranchEntry[] {
@@ -68,16 +84,9 @@ function buildBranchIndex(tree: RadialItem[], gap: number): BranchEntry[] {
   return entries;
 }
 
-function buildItemButton(
-  col: 0 | 1,
-  item: RadialItem,
-  withMeta: boolean,
-): HTMLButtonElement {
-  const info = item.infoHref
-    ? `<a class="radial__info" href="${item.infoHref}">Info</a>`
-    : "";
+function buildItemButton(col: 0 | 1, item: RadialItem, withMeta: boolean): HTMLButtonElement {
   const count = item.slides?.length ?? item.count ?? 0;
-  const meta = withMeta && count ? `<span class="radial__meta">[${count}] ${info}</span>` : "";
+  const meta = withMeta && count ? `<span class="radial__meta">[${count}]</span>` : "";
 
   const btn = document.createElement("button");
   btn.type = "button";
@@ -92,30 +101,44 @@ function buildItemButton(
   return btn;
 }
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+// Interpolate a value across a monotonic pair of keyframe arrays.
+function lerpAcross(x: number, xs: number[], ys: number[]): number {
+  const n = xs.length;
+  if (n === 0) return 0;
+  if (x <= xs[0]) return ys[0];
+  if (x >= xs[n - 1]) return ys[n - 1];
+  for (let i = 0; i < n - 1; i++) {
+    if (x >= xs[i] && x <= xs[i + 1]) {
+      const span = xs[i + 1] - xs[i] || 1;
+      const t = (x - xs[i]) / span;
+      return ys[i] + t * (ys[i + 1] - ys[i]);
+    }
+  }
+  return ys[n - 1];
+}
+
 export function mountRadialMenu(root: HTMLElement) {
   const dataEl = root.querySelector<HTMLScriptElement>("[data-radial-data]");
   const track = root.querySelector<HTMLElement>("[data-radial-track]");
   const stage = root.querySelector<HTMLElement>("[data-radial-stage]");
-  const navScroll = root.querySelector<HTMLElement>("[data-nav-scroll]");
   const previewScroll = root.querySelector<HTMLElement>("[data-preview-scroll]");
-  const projectSections = previewScroll
-    ? [...previewScroll.querySelectorAll<HTMLElement>("[data-project-key]")]
-    : [];
+  const nameEl = root.querySelector<HTMLElement>(".radial-name");
 
-  if (!dataEl?.textContent || !track || !stage || !navScroll) return;
+  if (!dataEl?.textContent || !track || !stage || !previewScroll) return;
 
   const { tree } = JSON.parse(dataEl.textContent) as RadialPayload;
   const branchEntries = buildBranchIndex(tree, CONFIG.categoryGap);
-  const snapEls = [
-    ...navScroll.querySelectorAll<HTMLElement>(".radial-nav-snap[data-project-key]"),
-  ];
 
+  // --- Build the fan (main = categories, branch = projects) -------------------
   track.innerHTML = `
     <div class="radial-layer radial-layer--main" data-layer="main"></div>
     <div class="radial-layer radial-layer--branch" data-layer="branch"></div>
   `;
   const mainLayer = track.querySelector<HTMLElement>("[data-layer='main']")!;
   const branchLayer = track.querySelector<HTMLElement>("[data-layer='branch']")!;
+
   const mainButtons = tree.map((item) => {
     const btn = buildItemButton(0, item, false);
     mainLayer.appendChild(btn);
@@ -132,16 +155,44 @@ export function mountRadialMenu(root: HTMLElement) {
     return btn;
   });
 
-  const snapByKey = new Map(
-    snapEls.map((el) => [el.dataset.projectKey ?? "", el] as const),
-  );
-  const firstProjectInCategory = new Map<number, HTMLElement>();
+  const categoryRanges: CategoryRange[] = [];
   branchEntries.forEach((entry) => {
-    if (!entry.categoryStart) return;
-    const el = snapByKey.get(`${entry.mainIdx}:${entry.projectIdx}`);
-    if (el) firstProjectInCategory.set(entry.mainIdx, el);
+    const existing = categoryRanges[entry.mainIdx];
+    if (!existing) {
+      categoryRanges[entry.mainIdx] = { vStart: entry.visualIndex, vEnd: entry.visualIndex };
+    } else {
+      existing.vStart = Math.min(existing.vStart, entry.visualIndex);
+      existing.vEnd = Math.max(existing.vEnd, entry.visualIndex);
+    }
   });
 
+  // --- Preview feed (the visible project column, single native scroll) --------
+  const projectSections = [...previewScroll.querySelectorAll<HTMLElement>("[data-project-key]")];
+  const sectionData: SectionDatum[] = projectSections.map((el) => {
+    const [mainIdx, projectIdx] = (el.dataset.projectKey ?? "0:0").split(":").map(Number);
+    const entry = branchEntries.find(
+      (item) => item.mainIdx === mainIdx && item.projectIdx === projectIdx,
+    );
+    return {
+      el,
+      mainIdx,
+      projectIdx,
+      key: `${mainIdx}:${projectIdx}`,
+      id: el.dataset.projectId ?? entry?.item.id ?? "",
+      visualIndex: entry?.visualIndex ?? 0,
+    };
+  });
+  const sectionVis = sectionData.map((d) => d.visualIndex);
+  let sectionTops = sectionData.map(() => 0);
+  const minVis = sectionVis.length ? sectionVis[0] : 0;
+  const maxVis = sectionVis.length ? sectionVis[sectionVis.length - 1] : 0;
+
+  const firstSectionInCategory = new Map<number, SectionDatum>();
+  sectionData.forEach((d) => {
+    if (!firstSectionInCategory.has(d.mainIdx)) firstSectionInCategory.set(d.mainIdx, d);
+  });
+
+  // --- Mobile nav -------------------------------------------------------------
   const mobileNav = root.querySelector<HTMLElement>("[data-mobile-nav]");
   const mobileCategories = mobileNav
     ? [...mobileNav.querySelectorAll<HTMLButtonElement>("[data-mobile-category]")]
@@ -152,108 +203,179 @@ export function mountRadialMenu(root: HTMLElement) {
   const mobileProjects = mobileNav
     ? [...mobileNav.querySelectorAll<HTMLButtonElement>("[data-mobile-project]")]
     : [];
+
   const mobileQuery = window.matchMedia("(max-width: 900px)");
-  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   const isMobile = () => mobileQuery.matches;
+  const prefersReducedMotion = () => reducedMotionQuery.matches;
 
-  let layoutQueued = false;
-  let previewSyncLock = false;
-  let navSyncLock = false;
-  let previewSyncTimer: ReturnType<typeof setTimeout> | undefined;
-  let navSyncTimer: ReturnType<typeof setTimeout> | undefined;
-  let previewScrollEndTimer: ReturnType<typeof setTimeout> | undefined;
+  stage.classList.toggle("is-branched", branchEntries.length > 0);
+  root.classList.toggle("is-branched", branchEntries.length > 0);
+
+  // --- State ------------------------------------------------------------------
+  let geom: Geometry = {
+    cx: 0,
+    baseR: 0,
+    mainRadius: CONFIG.mainRadiusMax,
+    branchRadius: CONFIG.mainRadiusMax + CONFIG.branchRingMin,
+    cy: 0,
+  };
+  let previewClientH = 0;
+  let cachedMaxHeroW = 0;
+  let driver: Driver = "fan";
+  let fanPos = minVis; // rendered fan position (visual-index space)
+  let fanTarget = minVis; // eased-toward goal
+  let fanRaf = 0;
+  let fanSettleTimer: ReturnType<typeof setTimeout> | undefined;
+  let previewPaintQueued = false;
+  let programmatic = false;
+  let suppressClick = false;
   let lastProjectKey = "";
-  let cachedMaxHeroBranchW = 0;
+  let lastProjectId = "";
+  let urlSyncLock = false;
 
-  const arcGeometry = (height: number) => {
-    const baseR = Math.min(height * CONFIG.radiusScale, CONFIG.radiusMax);
-    const cx = CONFIG.stagePadX - baseR * CONFIG.anchor;
-    return { baseR, cx };
+  const readCssLength = (prop: string, fallback: number) => {
+    const raw = getComputedStyle(root).getPropertyValue(prop).trim();
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : fallback;
   };
 
-  const readOrbitGap = () => {
-    const raw = getComputedStyle(root).getPropertyValue("--orbit-gap").trim();
-    const gap = parseFloat(raw);
-    return Number.isFinite(gap) ? gap : 32;
-  };
+  // --- Geometry (deterministic; computed once per resize) ---------------------
+  const measureMaxMainWidth = () =>
+    mainButtons.reduce((max, btn) => Math.max(max, btn.offsetWidth), 1);
 
-  const buttonOpacity = (btn: HTMLButtonElement) => {
-    const inline = btn.style.opacity;
-    if (inline) {
-      const parsed = parseFloat(inline);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-    return parseFloat(getComputedStyle(btn).opacity) || 0;
-  };
-
-  const measureMaxHeroBranchWidth = () => {
-    const saved = branchButtons.map((btn) => ({
-      btn,
-      hero: btn.classList.contains("is-hero"),
-      transform: btn.style.transform,
-      opacity: btn.style.opacity,
-    }));
-
-    let maxW = 0;
+  const measureMaxHeroWidth = () => {
+    let max = 1;
     branchButtons.forEach((btn) => {
+      const savedTransform = btn.style.transform;
+      const savedOpacity = btn.style.opacity;
+      const wasHero = btn.classList.contains("is-hero");
       btn.classList.add("is-hero");
       btn.style.transform = "translate3d(0,0,0) translateY(-50%) rotate(0deg)";
       btn.style.opacity = "1";
-      maxW = Math.max(maxW, btn.offsetWidth);
+      max = Math.max(max, btn.offsetWidth);
+      btn.classList.toggle("is-hero", wasHero);
+      btn.style.transform = savedTransform;
+      btn.style.opacity = savedOpacity;
     });
-
-    saved.forEach(({ btn, hero, transform, opacity }) => {
-      btn.classList.toggle("is-hero", hero);
-      btn.style.transform = transform;
-      btn.style.opacity = opacity;
-    });
-
-    return maxW;
+    return max;
   };
 
-  const getMaxHeroBranchWidth = () => {
-    if (cachedMaxHeroBranchW <= 0) {
-      cachedMaxHeroBranchW = measureMaxHeroBranchWidth();
+  const getMaxHeroWidth = () => {
+    if (cachedMaxHeroW <= 0) cachedMaxHeroW = measureMaxHeroWidth();
+    return cachedMaxHeroW;
+  };
+
+  const computeGeometry = () => {
+    const height = track.clientHeight;
+    if (height <= 0) return;
+
+    const gap = readCssLength("--orbit-gap", 32);
+    const nameArcGap = readCssLength("--orbit-name-gap", gap * 0.7);
+    const baseR = Math.min(height * CONFIG.radiusScale, CONFIG.radiusMax);
+    const cy = height / 2;
+    // Pivot on the name; inner arc sits one balanced gutter past the name edge.
+    const nameW = nameEl?.offsetWidth ?? 0;
+    const cx = gap + nameW / 2;
+    const maxMainW = measureMaxMainWidth();
+    const mainRadius = Math.min(
+      CONFIG.mainRadiusMax,
+      Math.max(CONFIG.mainRadiusMin, (nameArcGap + nameW / 2) / baseR),
+    );
+    const neededBranchRadius = mainRadius + (maxMainW + nameArcGap) / baseR;
+    const branchRadius = Math.max(mainRadius + CONFIG.branchRingMin, neededBranchRadius);
+
+    geom = { cx, baseR, mainRadius, branchRadius, cy };
+
+    if (nameEl) {
+      nameEl.style.left = `${cx}px`;
+      nameEl.style.top = `${cy}px`;
     }
-    return cachedMaxHeroBranchW;
-  };
 
-  const applyStageWidth = (stageRect: DOMRect, branchAnchorLeft: number) => {
-    const gap = readOrbitGap();
-    const maxHeroW = getMaxHeroBranchWidth();
-    const anchorRel = branchAnchorLeft - stageRect.left;
-
-    let maxRight = branchAnchorLeft + maxHeroW;
-    branchButtons.forEach((btn) => {
-      if (buttonOpacity(btn) <= 0.1) return;
-      maxRight = Math.max(maxRight, btn.getBoundingClientRect().right);
-    });
-
-    const stageW = Math.ceil(Math.max(maxRight - stageRect.left, anchorRel + maxHeroW) + gap);
+    const heroX = cx + baseR * branchRadius;
+    const stageW = Math.ceil(heroX + getMaxHeroWidth() + gap);
     if (stageW > 0) root.style.setProperty("--orbit-stage-w", `${stageW}px`);
   };
 
-  const layoutItem = (
-    colIndex: 0 | 1,
-    itemIndex: number,
-    scroll: number,
-    cy: number,
-    height: number,
-  ) => {
+  const computeMetrics = () => {
+    previewClientH = previewScroll.clientHeight;
+    const baseTop = previewScroll.getBoundingClientRect().top;
+    const scrollTop = previewScroll.scrollTop;
+    sectionTops = sectionData.map((d) => d.el.getBoundingClientRect().top - baseTop + scrollTop);
+  };
+
+  // --- Position mapping (pure math; no layout reads in the hot path) ----------
+  const progressFromPreview = () => {
+    const scrollTop = previewScroll.scrollTop;
+    const n = sectionTops.length;
+    if (n === 0) return 0;
+    if (scrollTop <= sectionTops[0]) return sectionVis[0];
+    if (scrollTop >= sectionTops[n - 1]) return sectionVis[n - 1];
+
+    for (let i = 0; i < n - 1; i++) {
+      if (scrollTop < sectionTops[i] || scrollTop >= sectionTops[i + 1]) continue;
+      const seg = sectionTops[i + 1] - sectionTops[i] || 1;
+      const handoff = Math.min(previewClientH * CONFIG.handoffFraction, seg);
+      const rampStart = sectionTops[i + 1] - handoff;
+      if (scrollTop <= rampStart) return sectionVis[i];
+      const t = (scrollTop - rampStart) / (handoff || 1);
+      return sectionVis[i] + t * (sectionVis[i + 1] - sectionVis[i]);
+    }
+    return sectionVis[n - 1];
+  };
+
+  const previewTopForVisual = (v: number) => lerpAcross(v, sectionVis, sectionTops);
+
+  const mainPosFromBranchVisual = (branchVisual: number) => {
+    const last = categoryRanges.length - 1;
+    if (last < 0) return 0;
+    if (branchVisual <= categoryRanges[0].vEnd) return 0;
+    for (let c = 0; c < last; c++) {
+      if (branchVisual <= categoryRanges[c].vEnd) return c;
+      if (branchVisual < categoryRanges[c + 1].vStart) {
+        const span = categoryRanges[c + 1].vStart - categoryRanges[c].vEnd || 1;
+        return c + (branchVisual - categoryRanges[c].vEnd) / span;
+      }
+    }
+    return last;
+  };
+
+  const activeFromBranchVisual = (branchVisual: number): SectionDatum => {
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < sectionVis.length; i++) {
+      const dist = Math.abs(sectionVis[i] - branchVisual);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    return (
+      sectionData[best] ?? { mainIdx: 0, projectIdx: 0, key: "0:0", id: "", visualIndex: 0, el: track }
+    );
+  };
+
+  // --- Painting ---------------------------------------------------------------
+  const layoutItem = (colIndex: 0 | 1, itemIndex: number, scroll: number) => {
     const delta = itemIndex + scroll;
-    const { baseR, cx } = arcGeometry(height);
-    const R = baseR * (colIndex === 0 ? CONFIG.mainRadius : CONFIG.branchRadius);
-    const step = (CONFIG.stepDeg * Math.PI) / 180;
+    const R = geom.baseR * (colIndex === 0 ? geom.mainRadius : geom.branchRadius);
+    const branchStep = (CONFIG.stepDeg * Math.PI) / 180;
+    // Inner ring is tighter — widen its step so arc length and tilt match the branch.
+    const step =
+      colIndex === 0 ? branchStep * (geom.branchRadius / geom.mainRadius) : branchStep;
     const theta = delta * step;
     const absDelta = Math.abs(delta);
-    const opacity = Math.max(0, 1 - absDelta * CONFIG.fadePower);
+    const centerWindow =
+      colIndex === 0
+        ? CONFIG.centerWindow * (geom.mainRadius / geom.branchRadius)
+        : CONFIG.centerWindow;
     return {
-      x: cx + R * Math.cos(theta),
-      y: cy + R * Math.sin(theta),
+      x: geom.cx + R * Math.cos(theta),
+      y: geom.cy + R * Math.sin(theta),
       rotation: (theta * 180) / Math.PI,
-      opacity,
+      opacity: Math.max(0, 1 - absDelta * CONFIG.fadePower),
       delta,
-      center: absDelta < CONFIG.centerWindow,
+      center: absDelta < centerWindow,
     };
   };
 
@@ -269,130 +391,27 @@ export function mountRadialMenu(root: HTMLElement) {
     const opacity = hidden ? "0" : String(alpha);
     const transform = `translate3d(${layout.x}px, ${layout.y}px, 0) translateY(-50%) rotate(${layout.rotation}deg)`;
     const zIndex = String(Math.round(30 - Math.abs(layout.delta) * 4));
-    const center = layout.center;
-    const active = !!opts.active;
     const pointerEvents = hidden ? "none" : "auto";
 
     if (el.style.transform !== transform) el.style.transform = transform;
     if (el.style.opacity !== opacity) el.style.opacity = opacity;
     if (el.style.zIndex !== zIndex) el.style.zIndex = zIndex;
     if (el.style.pointerEvents !== pointerEvents) el.style.pointerEvents = pointerEvents;
-    el.classList.toggle("is-center", center);
-    el.classList.toggle("is-active", active);
-    el.classList.toggle("is-hero", !!(opts.branch && center));
+    el.classList.toggle("is-center", layout.center);
+    el.classList.toggle("is-active", !!opts.active);
+    el.classList.toggle("is-hero", !!(opts.branch && layout.center));
   };
 
-  const snapCenters = () =>
-    snapEls.map((el) => ({
-      el,
-      visual: Number(el.dataset.visualIndex),
-      mainIdx: Number(el.dataset.projectKey?.split(":")[0] ?? 0),
-      projectIdx: Number(el.dataset.projectKey?.split(":")[1] ?? 0),
-      center: el.offsetTop + el.offsetHeight / 2,
-    }));
-
-  const branchVisualFromScroll = () => {
-    const center = navScroll.scrollTop + navScroll.clientHeight / 2;
-    const points = snapCenters();
-    if (!points.length) return 0;
-    if (center <= points[0].center) return points[0].visual;
-    if (center >= points[points.length - 1].center) return points[points.length - 1].visual;
-
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i];
-      const b = points[i + 1];
-      if (center < a.center || center > b.center) continue;
-      const span = b.center - a.center;
-      if (span <= 0) return a.visual;
-      const t = (center - a.center) / span;
-      return a.visual + t * (b.visual - a.visual);
-    }
-
-    return points[0].visual;
-  };
-
-  const nearestSnap = () => {
-    const center = navScroll.scrollTop + navScroll.clientHeight / 2;
-    let best: (ReturnType<typeof snapCenters>[number] & { dist: number }) | null = null;
-
-    for (const point of snapCenters()) {
-      const dist = Math.abs(point.center - center);
-      if (!best || dist < best.dist) best = { ...point, dist };
-    }
-
-    return best;
-  };
-
-  const activeFromScroll = (): ActiveProject => {
-    const hit = nearestSnap();
-    return hit
-      ? { mainIdx: hit.mainIdx, projectIdx: hit.projectIdx }
-      : { mainIdx: 0, projectIdx: 0 };
-  };
-
-  const activeFromPreview = (): ActiveProject | null => {
-    if (!previewScroll || !projectSections.length) return null;
-
-    const rootRect = previewScroll.getBoundingClientRect();
-    const focusY = rootRect.top + rootRect.height * 0.34;
-    let best: { el: HTMLElement; dist: number } | null = null;
-
-    for (const section of projectSections) {
-      const rect = section.getBoundingClientRect();
-      const anchor = rect.top + Math.min(rect.height * 0.12, 96);
-      const dist = Math.abs(anchor - focusY);
-      if (!best || dist < best.dist) best = { el: section, dist };
-    }
-
-    if (!best) return null;
-    const [mainIdx, projectIdx] = (best.el.dataset.projectKey ?? "0:0").split(":").map(Number);
-    return { mainIdx, projectIdx };
-  };
-
-  const branchVisualForActive = (active: ActiveProject) => {
-    const entry = branchEntries.find(
-      (item) => item.mainIdx === active.mainIdx && item.projectIdx === active.projectIdx,
-    );
-    return entry?.visualIndex ?? branchVisualFromScroll();
-  };
-
-  const scrollNavToProject = (
-    mainIdx: number,
-    projectIdx: number,
-    smooth = !prefersReducedMotion,
-  ) => {
-    const el = snapByKey.get(`${mainIdx}:${projectIdx}`);
-    if (!el) return;
-    navSyncLock = true;
-    clearTimeout(navSyncTimer);
-    el.scrollIntoView({ behavior: smooth ? "smooth" : "instant", block: "center" });
-    navSyncTimer = setTimeout(() => {
-      navSyncLock = false;
-    }, smooth ? CONFIG.syncLockMs : 40);
-  };
-
-  const scrollPreviewToProject = (
-    mainIdx: number,
-    projectIdx: number,
-    smooth = !prefersReducedMotion,
-  ) => {
-    const section = projectSections.find(
-      (el) => el.dataset.projectKey === `${mainIdx}:${projectIdx}`,
-    );
-    if (!section || !previewScroll) return;
-    previewSyncLock = true;
-    clearTimeout(previewSyncTimer);
-    section.scrollIntoView({ behavior: smooth ? "smooth" : "instant", block: "start" });
-    previewSyncTimer = setTimeout(() => {
-      previewSyncLock = false;
-    }, smooth ? CONFIG.syncLockMs : 40);
+  const syncPreviewActive = (active: SectionDatum) => {
+    projectSections.forEach((section) => {
+      section.classList.toggle("is-active", section.dataset.projectKey === active.key);
+    });
   };
 
   const syncMobileNav = (active: ActiveProject) => {
-    if (!mobileNav || !isMobile()) return;
+    if (!mobileNav) return;
     mobileCategories.forEach((btn) => {
-      const idx = Number(btn.dataset.mainIdx);
-      const isActive = idx === active.mainIdx;
+      const isActive = Number(btn.dataset.mainIdx) === active.mainIdx;
       btn.classList.toggle("is-active", isActive);
       btn.setAttribute("aria-selected", isActive ? "true" : "false");
     });
@@ -400,100 +419,43 @@ export function mountRadialMenu(root: HTMLElement) {
       group.hidden = Number(group.dataset.mainIdx) !== active.mainIdx;
     });
     mobileProjects.forEach((btn) => {
-      const mainIdx = Number(btn.dataset.mainIdx);
-      const projectIdx = Number(btn.dataset.projectIdx);
       btn.classList.toggle(
         "is-active",
-        mainIdx === active.mainIdx && projectIdx === active.projectIdx,
-      );
-    });
-  };
-
-  const syncPreviewActive = (active: ActiveProject) => {
-    const projectKey = `${active.mainIdx}:${active.projectIdx}`;
-    projectSections.forEach((section) => {
-      section.classList.toggle("is-active", section.dataset.projectKey === projectKey);
-    });
-    lastProjectKey = projectKey;
-  };
-
-  const updateScrollPadding = () => {
-    const pad = Math.max(0, navScroll.clientHeight / 2 - CONFIG.itemPitch / 2);
-    navScroll.style.setProperty("--nav-scroll-pad", `${pad}px`);
-  };
-
-  const updateLayout = (options?: { syncPreview?: boolean; previewLed?: boolean }) => {
-    if (isMobile()) return;
-
-    const usePreviewLed =
-      !!options?.previewLed && !previewSyncLock && !navSyncLock;
-
-    const active = usePreviewLed
-      ? activeFromPreview() ?? activeFromScroll()
-      : activeFromScroll();
-
-    const branchVisual = usePreviewLed
-      ? branchVisualForActive(active)
-      : branchVisualFromScroll();
-
-    const projectKey = `${active.mainIdx}:${active.projectIdx}`;
-    const prevProjectKey = lastProjectKey;
-    const height = track.clientHeight;
-    const cy = height / 2;
-
-    mainButtons.forEach((btn, i) => {
-      const layout = layoutItem(0, i, -active.mainIdx, cy, height);
-      paintItem(btn, layout, {
-        dimmed: branchEntries.length > 0,
-        active: i === active.mainIdx,
-      });
-    });
-
-    branchButtons.forEach((btn) => {
-      const visualIndex = Number(btn.dataset.visualIndex);
-      const layout = layoutItem(1, visualIndex, -branchVisual, cy, height);
-      const mainIdx = Number(btn.dataset.mainIdx);
-      const projectIdx = Number(btn.dataset.projectIdx);
-      paintItem(btn, layout, {
-        branch: true,
-        active: mainIdx === active.mainIdx && projectIdx === active.projectIdx,
-      });
-    });
-
-    stage.classList.toggle("is-branched", branchEntries.length > 0);
-    root.classList.toggle("is-branched", branchEntries.length > 0);
-
-    syncPreviewActive(active);
-    syncMobileNav(active);
-
-    if (
-      options?.syncPreview &&
-      !previewSyncLock &&
-      projectKey !== prevProjectKey
-    ) {
-      scrollPreviewToProject(active.mainIdx, active.projectIdx, !prefersReducedMotion);
-    }
-
-    if (!options?.previewLed) {
-      const stageRect = stage.getBoundingClientRect();
-      const centeredBranch = branchButtons.find(
-        (btn) =>
-          Number(btn.dataset.mainIdx) === active.mainIdx &&
+        Number(btn.dataset.mainIdx) === active.mainIdx &&
           Number(btn.dataset.projectIdx) === active.projectIdx,
       );
-      if (centeredBranch) {
-        applyStageWidth(stageRect, centeredBranch.getBoundingClientRect().left);
-      }
-    }
+    });
   };
 
-  const paintArcForBalance = (active: ActiveProject, height: number) => {
-    const branchVisual = branchVisualFromScroll();
-    const cy = height / 2;
+  const isValidProjectId = (id: string) => sectionData.some((d) => d.id === id);
+
+  const syncProjectUrl = (active: SectionDatum) => {
+    if (!active.id || active.id === lastProjectId || !isValidProjectId(active.id)) return;
+    lastProjectId = active.id;
+    if (window.location.hash === `#${active.id}`) return;
+    urlSyncLock = true;
+    history.replaceState(null, "", `#${active.id}`);
+    queueMicrotask(() => {
+      urlSyncLock = false;
+    });
+  };
+
+  const commitActive = (active: SectionDatum) => {
+    if (active.key === lastProjectKey) return;
+    lastProjectKey = active.key;
+    syncPreviewActive(active);
+    syncMobileNav(active);
+    syncProjectUrl(active);
+  };
+
+  // commit=false while scrubbing the fan: move the labels only, leave the heavy
+  // preview highlight/content untouched until the scrub settles.
+  const paintFan = (branchVisual: number, commit: boolean) => {
+    const mainPos = mainPosFromBranchVisual(branchVisual);
+    const active = activeFromBranchVisual(branchVisual);
 
     mainButtons.forEach((btn, i) => {
-      const layout = layoutItem(0, i, -active.mainIdx, cy, height);
-      paintItem(btn, layout, {
+      paintItem(btn, layoutItem(0, i, -mainPos), {
         dimmed: branchEntries.length > 0,
         active: i === active.mainIdx,
       });
@@ -501,261 +463,301 @@ export function mountRadialMenu(root: HTMLElement) {
 
     branchButtons.forEach((btn) => {
       const visualIndex = Number(btn.dataset.visualIndex);
-      const layout = layoutItem(1, visualIndex, -branchVisual, cy, height);
-      const mainIdx = Number(btn.dataset.mainIdx);
-      const projectIdx = Number(btn.dataset.projectIdx);
-      paintItem(btn, layout, {
+      paintItem(btn, layoutItem(1, visualIndex, -branchVisual), {
         branch: true,
-        active: mainIdx === active.mainIdx && projectIdx === active.projectIdx,
+        active:
+          Number(btn.dataset.mainIdx) === active.mainIdx &&
+          Number(btn.dataset.projectIdx) === active.projectIdx,
       });
     });
+
+    if (commit) commitActive(active);
   };
 
-  const balanceOrbitLayout = () => {
-    if (isMobile()) return;
+  // --- Fan easing (the smooth scrub) ------------------------------------------
+  const clampVisual = (v: number) => clamp(v, minVis, maxVis);
 
-    const gap = readOrbitGap();
-    const height = track.clientHeight;
-    if (height <= 0) return;
-
-    const active = activeFromScroll();
-    const centeredMain = mainButtons[active.mainIdx];
-    const centeredBranch = branchButtons.find(
-      (btn) =>
-        Number(btn.dataset.mainIdx) === active.mainIdx &&
-        Number(btn.dataset.projectIdx) === active.projectIdx,
-    );
-    if (!centeredMain || !centeredBranch) return;
-
-    const stageRect = stage.getBoundingClientRect();
-    const branchRadiusMax = 2.5;
-    CONFIG.stagePadX = 0;
-
-    paintArcForBalance(active, height);
-
-    let mainRect = centeredMain.getBoundingClientRect();
-    const mainLeftGap = mainRect.left - stageRect.left;
-    if (mainLeftGap < gap) {
-      CONFIG.stagePadX += gap - mainLeftGap;
-      paintArcForBalance(active, height);
-      mainRect = centeredMain.getBoundingClientRect();
-    }
-
-    for (let i = 0; i < 16; i++) {
-      paintArcForBalance(active, height);
-
-      const branchRect = centeredBranch.getBoundingClientRect();
-      const visualGap = branchRect.left - mainRect.right;
-
-      if (visualGap >= gap) {
-        applyStageWidth(stageRect, branchRect.left);
-        return;
-      }
-
-      const { baseR } = arcGeometry(height);
-      CONFIG.branchRadius += Math.max((gap - visualGap) / baseR, 0.03);
-      CONFIG.branchRadius = Math.min(
-        Math.max(CONFIG.branchRadius, CONFIG.anchor + 0.08),
-        branchRadiusMax,
-      );
-    }
-
-    const branchRect = centeredBranch.getBoundingClientRect();
-    applyStageWidth(stageRect, branchRect.left);
-  };
-
-  const scheduleLayout = (options?: { syncPreview?: boolean; previewLed?: boolean }) => {
-    if (layoutQueued) return;
-    layoutQueued = true;
-    requestAnimationFrame(() => {
-      layoutQueued = false;
-      updateLayout(options);
-    });
-  };
-
-  const syncNavToPreview = () => {
-    if (previewSyncLock || navSyncLock || !previewScroll) return;
-
-    const previewActive = activeFromPreview();
-    if (!previewActive) return;
-
-    const navActive = activeFromScroll();
-    if (
-      previewActive.mainIdx === navActive.mainIdx &&
-      previewActive.projectIdx === navActive.projectIdx
-    ) {
+  const fanEaseLoop = () => {
+    if (driver !== "fan") {
+      fanRaf = 0;
       return;
     }
-
-    scrollNavToProject(previewActive.mainIdx, previewActive.projectIdx, false);
-  };
-
-  const onNavScroll = () => {
-    scheduleLayout({ syncPreview: true });
-  };
-
-  const onPreviewScroll = () => {
-    if (previewSyncLock || navSyncLock || isMobile()) return;
-    scheduleLayout({ previewLed: true });
-
-    clearTimeout(previewScrollEndTimer);
-    previewScrollEndTimer = setTimeout(syncNavToPreview, 80);
-  };
-
-  const goToCategory = (mainIdx: number) => {
-    const el = firstProjectInCategory.get(mainIdx);
-    if (!el) return;
-    navSyncLock = true;
-    clearTimeout(navSyncTimer);
-    el.scrollIntoView({ behavior: prefersReducedMotion ? "instant" : "smooth", block: "center" });
-    navSyncTimer = setTimeout(() => {
-      navSyncLock = false;
-      scheduleLayout({ syncPreview: true });
-    }, prefersReducedMotion ? 40 : CONFIG.syncLockMs);
-  };
-
-  const goToProject = (id: string) => {
-    const entry = branchEntries.find((item) => item.item.id === id);
-    if (!entry) return;
-    scrollNavToProject(entry.mainIdx, entry.projectIdx, !prefersReducedMotion);
-    scrollPreviewToProject(entry.mainIdx, entry.projectIdx, !prefersReducedMotion);
-  };
-
-  track.addEventListener("click", (e) => {
-    if ((e.target as HTMLElement).closest(".radial__info")) return;
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".radial__item");
-    if (!btn?.dataset.id) return;
-    e.preventDefault();
-    const col = Number(btn.dataset.col);
-    if (col === 0) {
-      const idx = tree.findIndex((item) => item.id === btn.dataset.id);
-      if (idx >= 0) goToCategory(idx);
-    } else {
-      goToProject(btn.dataset.id);
+    const diff = fanTarget - fanPos;
+    if (Math.abs(diff) < 0.0015) {
+      fanPos = fanTarget;
+      paintFan(fanPos, true); // at rest → commit the active project
+      fanRaf = 0;
+      return;
     }
-  });
+    fanPos += diff * CONFIG.fanEase;
+    paintFan(fanPos, false);
+    fanRaf = requestAnimationFrame(fanEaseLoop);
+  };
 
-  mobileCategories.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const idx = Number(btn.dataset.mainIdx);
-      if (idx >= 0) goToCategory(idx);
+  const kickFan = () => {
+    if (!fanRaf) fanRaf = requestAnimationFrame(fanEaseLoop);
+  };
+
+  const mirrorPreview = (v: number) => {
+    programmatic = true;
+    previewScroll.scrollTop = previewTopForVisual(v);
+    requestAnimationFrame(() => {
+      programmatic = false;
     });
-  });
+  };
 
-  mobileProjects.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const mainIdx = Number(btn.dataset.mainIdx);
-      const projectIdx = Number(btn.dataset.projectIdx);
-      scrollPreviewToProject(mainIdx, projectIdx, !prefersReducedMotion);
+  // After the scrub idles, snap to the nearest project and bring the (heavy)
+  // preview across in a single jump.
+  const scheduleFanSettle = () => {
+    clearTimeout(fanSettleTimer);
+    fanSettleTimer = setTimeout(() => {
+      if (driver !== "fan") return;
+      const active = activeFromBranchVisual(fanTarget);
+      fanTarget = active.visualIndex;
+      mirrorPreview(active.visualIndex);
+      kickFan();
+    }, CONFIG.fanSettleMs);
+  };
+
+  // --- Preview reading drives the fan live ------------------------------------
+  const schedulePreviewPaint = () => {
+    if (previewPaintQueued) return;
+    previewPaintQueued = true;
+    requestAnimationFrame(() => {
+      previewPaintQueued = false;
+      if (isMobile()) {
+        commitActive(activeFromBranchVisual(progressFromPreview()));
+        return;
+      }
+      const v = progressFromPreview();
+      fanPos = v;
+      fanTarget = v;
+      paintFan(v, true);
     });
-  });
+  };
 
-  navScroll.addEventListener("scroll", onNavScroll, { passive: true });
+  previewScroll.addEventListener(
+    "scroll",
+    () => {
+      if (programmatic) return;
+      if (!isMobile() && driver !== "preview") return;
+      schedulePreviewPaint();
+    },
+    { passive: true },
+  );
+
+  // --- Fan input: wheel + pointer drag ----------------------------------------
+  const beginFanInput = () => {
+    driver = "fan";
+    clearTimeout(fanSettleTimer);
+  };
 
   stage.addEventListener(
     "wheel",
     (e) => {
       if (isMobile()) return;
-      if (!(e.target as HTMLElement).closest(".radial__item")) return;
-      navScroll.scrollTop += e.deltaY;
+      e.preventDefault();
+      beginFanInput();
+      fanTarget = clampVisual(fanTarget + e.deltaY * CONFIG.fanWheel);
+      kickFan();
+      scheduleFanSettle();
     },
-    { passive: true, capture: true },
+    { passive: false },
   );
 
-  if ("onscrollend" in navScroll) {
-    navScroll.addEventListener(
-      "scrollend",
-      () => {
-        if (navSyncLock) return;
-        const active = activeFromScroll();
-        scrollPreviewToProject(active.mainIdx, active.projectIdx, !prefersReducedMotion);
-      },
-      { passive: true },
-    );
-  }
+  let dragActive = false;
+  let dragStartY = 0;
+  let dragStartTarget = 0;
+  let dragMoved = false;
 
-  if (previewScroll && projectSections.length) {
-    const galleryFigures = [
-      ...previewScroll.querySelectorAll<HTMLElement>(".radial-project__figure"),
-    ];
+  stage.addEventListener("pointerdown", (e) => {
+    if (isMobile()) return;
+    beginFanInput();
+    dragActive = true;
+    dragMoved = false;
+    dragStartY = e.clientY;
+    dragStartTarget = fanTarget;
+  });
 
-    if (galleryFigures.length) {
-      const galleryObserver = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            const figure = entry.target as HTMLElement;
-            figure.classList.toggle("is-inview", entry.isIntersecting);
-            const video = figure.querySelector<HTMLVideoElement>("[data-autoplay-video]");
-            if (!video) return;
-            if (entry.isIntersecting && entry.intersectionRatio > 0.3) {
-              video.play().catch(() => {});
-            } else {
-              video.pause();
-            }
-          });
-        },
-        {
-          root: previewScroll,
-          rootMargin: "-10% 0px -10% 0px",
-          threshold: [0, 0.3, 0.55],
-        },
-      );
-      galleryFigures.forEach((figure) => galleryObserver.observe(figure));
+  window.addEventListener("pointermove", (e) => {
+    if (!dragActive) return;
+    const dy = e.clientY - dragStartY;
+    if (!dragMoved && Math.abs(dy) < 4) return;
+    dragMoved = true;
+    // Drag up to advance, mirroring a natural scrub of the column.
+    fanTarget = clampVisual(dragStartTarget - dy * CONFIG.fanDrag);
+    fanPos = fanTarget; // 1:1 while dragging so it tracks the finger/cursor
+    paintFan(fanPos, false);
+  });
+
+  window.addEventListener("pointerup", () => {
+    if (!dragActive) return;
+    dragActive = false;
+    if (dragMoved) {
+      suppressClick = true;
+      setTimeout(() => {
+        suppressClick = false;
+      }, 60);
+      scheduleFanSettle();
     }
+  });
 
-    previewScroll.addEventListener("scroll", onPreviewScroll, { passive: true });
+  previewScroll.addEventListener("pointerdown", () => {
+    if (!isMobile()) driver = "preview";
+  });
+  previewScroll.addEventListener(
+    "wheel",
+    () => {
+      if (!isMobile()) driver = "preview";
+    },
+    { passive: true },
+  );
+  previewScroll.addEventListener(
+    "touchstart",
+    () => {
+      if (!isMobile()) driver = "preview";
+    },
+    { passive: true },
+  );
 
-    if ("onscrollend" in previewScroll) {
-      previewScroll.addEventListener(
-        "scrollend",
-        () => {
-          if (previewSyncLock || navSyncLock || isMobile()) return;
-          syncNavToPreview();
-        },
-        { passive: true },
-      );
+  // --- Programmatic navigation (clicks / keyboard / hash) ---------------------
+  const goToProject = (target: SectionDatum, instant = prefersReducedMotion()) => {
+    if (isMobile()) {
+      target.el.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "start" });
+      commitActive(target);
+      return;
     }
-  }
+    driver = "fan";
+    clearTimeout(fanSettleTimer);
+    fanTarget = target.visualIndex;
+    mirrorPreview(target.visualIndex);
+    if (instant) {
+      cancelAnimationFrame(fanRaf);
+      fanRaf = 0;
+      fanPos = fanTarget;
+      paintFan(fanPos, true);
+    } else {
+      kickFan();
+    }
+  };
+
+  const goToProjectId = (id: string, instant?: boolean) => {
+    const target = sectionData.find((d) => d.id === id);
+    if (target) goToProject(target, instant);
+  };
+
+  const goToCategory = (mainIdx: number) => {
+    const target = firstSectionInCategory.get(mainIdx);
+    if (target) goToProject(target);
+  };
+
+  track.addEventListener("click", (e) => {
+    if (suppressClick) return;
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>(".radial__item");
+    if (!btn?.dataset.id) return;
+    e.preventDefault();
+    if (Number(btn.dataset.col) === 0) {
+      const idx = tree.findIndex((item) => item.id === btn.dataset.id);
+      if (idx >= 0) goToCategory(idx);
+    } else {
+      goToProjectId(btn.dataset.id);
+    }
+  });
+
+  mobileCategories.forEach((btn) => {
+    btn.addEventListener("click", () => goToCategory(Number(btn.dataset.mainIdx)));
+  });
+  mobileProjects.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.projectId;
+      if (id) goToProjectId(id);
+    });
+  });
 
   root.addEventListener("keydown", (e) => {
     if (isMobile()) return;
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
+    const current = sectionData.indexOf(activeFromBranchVisual(fanTarget));
+    const next = clamp(current + (e.key === "ArrowUp" ? -1 : 1), 0, sectionData.length - 1);
+    goToProject(sectionData[next]);
+  });
 
-    const hit = nearestSnap();
-    if (!hit) return;
-    const currentIdx = snapEls.indexOf(hit.el);
-    const nextIdx = Math.min(
-      Math.max(currentIdx + (e.key === "ArrowUp" ? -1 : 1), 0),
-      snapEls.length - 1,
+  window.addEventListener("hashchange", () => {
+    if (urlSyncLock) return;
+    const id = window.location.hash.slice(1);
+    if (id && isValidProjectId(id) && id !== lastProjectId) goToProjectId(id, true);
+  });
+
+  // --- Gallery reveal + video autoplay ----------------------------------------
+  const galleryFigures = [...previewScroll.querySelectorAll<HTMLElement>(".radial-project__figure")];
+  if (galleryFigures.length) {
+    const galleryObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          const figure = entry.target as HTMLElement;
+          figure.classList.toggle("is-inview", entry.isIntersecting);
+          const video = figure.querySelector<HTMLVideoElement>("[data-autoplay-video]");
+          if (!video) return;
+          if (entry.isIntersecting && entry.intersectionRatio > 0.3) {
+            video.play().catch(() => {});
+          } else {
+            video.pause();
+          }
+        });
+      },
+      { root: previewScroll, rootMargin: "-10% 0px -10% 0px", threshold: [0, 0.3, 0.55] },
     );
-    const next = snapEls[nextIdx];
-    const [mainIdx, projectIdx] = (next.dataset.projectKey ?? "0:0").split(":").map(Number);
-    scrollNavToProject(mainIdx, projectIdx, !prefersReducedMotion);
-    scrollPreviewToProject(mainIdx, projectIdx, !prefersReducedMotion);
-  });
+    galleryFigures.forEach((figure) => galleryObserver.observe(figure));
+  }
 
-  window.addEventListener("resize", () => {
-    remeasureOrbit();
-  });
-
-  const remeasureOrbit = () => {
-    updateScrollPadding();
-    cachedMaxHeroBranchW = 0;
-    for (let i = 0; i < 2; i++) {
-      updateLayout();
-      balanceOrbitLayout();
-    }
+  // --- Keep metrics fresh as media loads / layout shifts ----------------------
+  let remeasureQueued = false;
+  const scheduleRemeasure = () => {
+    if (remeasureQueued) return;
+    remeasureQueued = true;
+    requestAnimationFrame(() => {
+      remeasureQueued = false;
+      computeMetrics();
+      if (isMobile()) commitActive(activeFromBranchVisual(progressFromPreview()));
+      else if (driver === "preview") schedulePreviewPaint();
+    });
   };
 
-  const boot = activeFromScroll();
-  lastProjectKey = `${boot.mainIdx}:${boot.projectIdx}`;
-  projectSections.forEach((section) => {
-    section.classList.toggle("is-active", section.dataset.projectKey === lastProjectKey);
-  });
-  remeasureOrbit();
-  requestAnimationFrame(remeasureOrbit);
-  document.fonts?.ready.then(remeasureOrbit).catch(() => {});
+  if ("ResizeObserver" in window) {
+    const ro = new ResizeObserver(scheduleRemeasure);
+    projectSections.forEach((section) => ro.observe(section));
+  }
+
+  const relayout = () => {
+    cachedMaxHeroW = 0;
+    computeGeometry();
+    computeMetrics();
+    if (isMobile()) commitActive(activeFromBranchVisual(progressFromPreview()));
+    else paintFan(driver === "preview" ? progressFromPreview() : fanPos, true);
+  };
+
+  window.addEventListener("resize", relayout);
+  mobileQuery.addEventListener?.("change", relayout);
+  document.fonts?.ready.then(relayout).catch(() => {});
+
+  // --- Boot -------------------------------------------------------------------
+  computeGeometry();
+  computeMetrics();
+
+  const initialId = window.location.hash.slice(1);
+  const initialTarget =
+    initialId && isValidProjectId(initialId)
+      ? sectionData.find((d) => d.id === initialId)
+      : undefined;
+  if (initialTarget) {
+    goToProject(initialTarget, true);
+  } else if (isMobile()) {
+    commitActive(sectionData[0] ?? activeFromBranchVisual(0));
+  } else {
+    fanPos = fanTarget = minVis;
+    paintFan(fanPos, true);
+  }
 }
 
 const root = document.querySelector<HTMLElement>("[data-radial-menu]");
