@@ -13,6 +13,10 @@ function projectYear(subtitle: string): string {
 function projectIndex(n: number): string {
   return String(n).padStart(3, "0");
 }
+
+function videoPosterSrc(slides: (typeof dialProjects)[number]["slides"]) {
+  return slides?.find((slide) => slide.kind === "image")?.src;
+}
 ---
 <BaseLayout title="Grid" description="Projects, prototypes, artworks, concepts and experiments by Ahmed Drebika." nav="grid">
   <div class="grid-home" data-grid-page>
@@ -37,6 +41,7 @@ function projectIndex(n: number): string {
           dialProjects.map((project, index) => {
             const hero = project.slides?.[0];
             const year = projectYear(project.subtitle);
+            const poster = hero?.kind === "video" ? videoPosterSrc(project.slides) : undefined;
             return (
               <a
                 class="grid-cell"
@@ -48,11 +53,13 @@ function projectIndex(n: number): string {
                     (hero.kind === "video" ? (
                       <video
                         class="grid-cell__video"
-                        src={hero.src}
+                        src={`${hero.src}#t=0.001`}
+                        poster={poster}
                         muted
                         loop
                         playsinline
                         preload="metadata"
+                        aria-hidden="true"
                         data-grid-cover-video
                       />
                     ) : (
@@ -92,12 +99,45 @@ function projectIndex(n: number): string {
       });
     });
 
+    const primeVideoThumbnail = (video: HTMLVideoElement) => {
+      const snapFrame = () => {
+        try {
+          if (video.currentTime < 0.001) video.currentTime = 0.001;
+          else video.pause();
+        } catch {
+          /* iOS may reject the seek until more data is buffered */
+        }
+      };
+      video.addEventListener("loadeddata", snapFrame, { once: true });
+      video.addEventListener("seeked", () => video.pause(), { once: true });
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) snapFrame();
+    };
+
     const coverVideos = [...document.querySelectorAll<HTMLVideoElement>("[data-grid-cover-video]")];
+    const hoverable = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
     coverVideos.forEach((video) => {
+      primeVideoThumbnail(video);
       const cell = video.closest<HTMLElement>(".grid-cell");
-      if (!cell) return;
+      if (!cell || !hoverable) return;
       cell.addEventListener("mouseenter", () => video.play().catch(() => {}));
       cell.addEventListener("mouseleave", () => video.pause());
     });
+
+    if ("IntersectionObserver" in window) {
+      const thumbObserver = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            const video = entry.target as HTMLVideoElement;
+            primeVideoThumbnail(video);
+            if (video.readyState === HTMLMediaElement.HAVE_NOTHING) video.load();
+            thumbObserver.unobserve(video);
+          });
+        },
+        { rootMargin: "120px 0px" },
+      );
+      coverVideos.forEach((video) => thumbObserver.observe(video));
+    }
   </script>
 </BaseLayout>
