@@ -113,6 +113,35 @@ body:has(.grid-home) .site-footer {
   letter-spacing: 0.01em;
 }
 
+@media (max-width: 900px) {
+  body:has(.grid-home) {
+    display: block;
+    height: auto;
+    min-height: 100dvh;
+    min-height: -webkit-fill-available;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body:has(.grid-home) main {
+    display: block;
+    overflow: visible;
+    min-height: auto;
+  }
+
+  .grid-home {
+    display: block;
+    overflow: visible;
+    min-height: auto;
+  }
+
+  .grid-scroll {
+    overflow: visible;
+    height: auto;
+    min-height: auto;
+  }
+}
+
 @media (max-width: 600px) {
   .grid-index {
     grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));

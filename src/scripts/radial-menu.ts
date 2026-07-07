@@ -241,6 +241,10 @@ export function mountRadialMenu(root: HTMLElement) {
     return Number.isFinite(n) ? n : fallback;
   };
 
+  const sectionDocTop = (el: HTMLElement) => el.getBoundingClientRect().top + window.scrollY;
+
+  const getScrollPos = () => (isMobile() ? window.scrollY : previewScroll.scrollTop);
+
   // --- Geometry (deterministic; computed once per resize) ---------------------
   const measureMaxMainWidth = () =>
     mainButtons.reduce((max, btn) => Math.max(max, btn.offsetWidth), 1);
@@ -299,11 +303,12 @@ export function mountRadialMenu(root: HTMLElement) {
   };
 
   const computeMetrics = () => {
-    previewClientH = previewScroll.clientHeight;
     if (isMobile()) {
-      sectionOffsets = sectionData.map((d) => d.el.offsetTop);
+      previewClientH = window.innerHeight;
+      sectionOffsets = sectionData.map((d) => sectionDocTop(d.el));
       return;
     }
+    previewClientH = previewScroll.clientHeight;
     const baseTop = previewScroll.getBoundingClientRect().top;
     const scrollTop = previewScroll.scrollTop;
     sectionTops = sectionData.map((d) => d.el.getBoundingClientRect().top - baseTop + scrollTop);
@@ -561,7 +566,7 @@ export function mountRadialMenu(root: HTMLElement) {
     if (mobileScrollRaf) return;
     mobileScrollRaf = requestAnimationFrame(() => {
       mobileScrollRaf = 0;
-      commitActive(activeFromScrollTop(previewScroll.scrollTop));
+      commitActive(activeFromScrollTop(getScrollPos()));
     });
   };
 
@@ -571,7 +576,7 @@ export function mountRadialMenu(root: HTMLElement) {
     requestAnimationFrame(() => {
       previewPaintQueued = false;
       if (isMobile()) {
-        commitActive(activeFromScrollTop(previewScroll.scrollTop));
+        commitActive(activeFromScrollTop(getScrollPos()));
         return;
       }
       const v = progressFromPreview();
@@ -584,13 +589,18 @@ export function mountRadialMenu(root: HTMLElement) {
   previewScroll.addEventListener(
     "scroll",
     () => {
-      if (programmatic) return;
-      if (isMobile()) {
-        scheduleMobileActive();
-        return;
-      }
+      if (programmatic || isMobile()) return;
       if (driver !== "preview") return;
       schedulePreviewPaint();
+    },
+    { passive: true },
+  );
+
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!isMobile() || programmatic) return;
+      scheduleMobileActive();
     },
     { passive: true },
   );
@@ -673,10 +683,7 @@ export function mountRadialMenu(root: HTMLElement) {
   const goToProject = (target: SectionDatum, instant = prefersReducedMotion()) => {
     if (isMobile()) {
       programmatic = true;
-      previewScroll.scrollTo({
-        top: target.el.offsetTop,
-        behavior: instant ? "auto" : "smooth",
-      });
+      target.el.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "start" });
       commitActive(target);
       requestAnimationFrame(() => {
         programmatic = false;
@@ -776,7 +783,7 @@ export function mountRadialMenu(root: HTMLElement) {
       remeasureQueued = false;
       computeMetrics();
       if (isMobile()) {
-        if (!programmatic) commitActive(activeFromScrollTop(previewScroll.scrollTop));
+        if (!programmatic) commitActive(activeFromScrollTop(getScrollPos()));
       } else if (driver === "preview") {
         schedulePreviewPaint();
       }
@@ -795,7 +802,7 @@ export function mountRadialMenu(root: HTMLElement) {
   const relayout = () => {
     if (isMobile()) {
       computeMetrics();
-      commitActive(activeFromScrollTop(previewScroll.scrollTop));
+      commitActive(activeFromScrollTop(getScrollPos()));
       return;
     }
     cachedMaxHeroW = 0;

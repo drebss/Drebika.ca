@@ -422,17 +422,30 @@ body:has(.radial-home) .site-footer {
 }
 
 @media (max-width: 900px) {
+  body:has(.radial-home) {
+    display: block;
+    height: auto;
+    min-height: 100dvh;
+    min-height: -webkit-fill-available;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  body:has(.radial-home) main {
+    display: block;
+    overflow: visible;
+    min-height: auto;
+  }
+
   body:has(.radial-home) .site-logo {
     visibility: visible;
   }
 
   .radial-home,
   .radial-home.is-branched {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: hidden;
+    display: block;
+    overflow: visible;
+    min-height: auto;
   }
 
   .radial-name {
@@ -453,13 +466,13 @@ body:has(.radial-home) .site-footer {
 
   .radial-stage {
     position: static;
-    flex: 0 0 auto;
     z-index: 5;
     min-height: auto;
     overflow: visible;
     background: var(--bg);
     touch-action: auto;
-    padding: 0.75rem var(--pad) 0.5rem;
+    padding: 0.75rem max(var(--pad), env(safe-area-inset-left, 0px)) 0.5rem
+      max(var(--pad), env(safe-area-inset-right, 0px));
     -webkit-mask-image: none;
     mask-image: none;
   }
@@ -470,39 +483,32 @@ body:has(.radial-home) .site-footer {
   }
 
   .radial-preview {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    display: block;
+    overflow: visible;
+    min-height: auto;
   }
 
   .radial-preview__scroll {
-    flex: 1 1 auto;
-    min-height: 0;
+    display: block;
+    overflow: visible;
     height: auto;
     max-height: none;
-    overflow-x: hidden;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
-    overscroll-behavior-y: contain;
-    scroll-snap-type: none;
     padding-left: 0;
+    scrollbar-gutter: auto;
   }
 
   .radial-project {
     min-height: auto;
     scroll-snap-align: none;
     scroll-snap-stop: normal;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 720px;
+    scroll-margin-top: 5.5rem;
   }
 
   .radial-project__layout {
     grid-template-columns: 1fr;
     min-height: auto;
-    padding: 2rem var(--pad) 2.5rem;
+    padding: 2rem max(var(--pad), env(safe-area-inset-right, 0px)) 2.5rem
+      max(var(--pad), env(safe-area-inset-left, 0px));
     gap: 1.5rem;
   }
 
