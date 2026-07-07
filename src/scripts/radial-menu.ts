@@ -221,6 +221,7 @@ export function mountRadialMenu(root: HTMLElement) {
     cy: 0,
   };
   let previewClientH = 0;
+  let sectionOffsets: number[] = [];
   let cachedMaxHeroW = 0;
   let driver: Driver = "fan";
   let fanPos = minVis; // rendered fan position (visual-index space)
@@ -299,9 +300,30 @@ export function mountRadialMenu(root: HTMLElement) {
 
   const computeMetrics = () => {
     previewClientH = previewScroll.clientHeight;
+    if (isMobile()) {
+      sectionOffsets = sectionData.map((d) => d.el.offsetTop);
+      return;
+    }
     const baseTop = previewScroll.getBoundingClientRect().top;
     const scrollTop = previewScroll.scrollTop;
     sectionTops = sectionData.map((d) => d.el.getBoundingClientRect().top - baseTop + scrollTop);
+  };
+
+  const activeFromScrollTop = (scrollTop: number): SectionDatum => {
+    if (sectionOffsets.length === 0) {
+      return sectionData[0] ?? { mainIdx: 0, projectIdx: 0, key: "0:0", id: "", visualIndex: 0, el: track };
+    }
+    const focus = scrollTop + previewClientH * 0.28;
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < sectionOffsets.length; i++) {
+      const dist = Math.abs(sectionOffsets[i] - focus);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    return sectionData[best];
   };
 
   // --- Position mapping (pure math; no layout reads in the hot path) ----------
@@ -408,6 +430,19 @@ export function mountRadialMenu(root: HTMLElement) {
     });
   };
 
+  const syncMobileVideos = (active: SectionDatum) => {
+    if (!isMobile()) return;
+    projectSections.forEach((section) => {
+      const video = section.querySelector<HTMLVideoElement>("[data-autoplay-video]");
+      if (!video) return;
+      if (section.dataset.projectKey === active.key) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+      }
+    });
+  };
+
   const syncMobileNav = (active: ActiveProject) => {
     if (!mobileNav) return;
     mobileCategories.forEach((btn) => {
@@ -445,6 +480,7 @@ export function mountRadialMenu(root: HTMLElement) {
     lastProjectKey = active.key;
     syncPreviewActive(active);
     syncMobileNav(active);
+    syncMobileVideos(active);
     syncProjectUrl(active);
   };
 
@@ -520,13 +556,22 @@ export function mountRadialMenu(root: HTMLElement) {
   };
 
   // --- Preview reading drives the fan live ------------------------------------
+  let mobileScrollRaf = 0;
+  const scheduleMobileActive = () => {
+    if (mobileScrollRaf) return;
+    mobileScrollRaf = requestAnimationFrame(() => {
+      mobileScrollRaf = 0;
+      commitActive(activeFromScrollTop(previewScroll.scrollTop));
+    });
+  };
+
   const schedulePreviewPaint = () => {
     if (previewPaintQueued) return;
     previewPaintQueued = true;
     requestAnimationFrame(() => {
       previewPaintQueued = false;
       if (isMobile()) {
-        commitActive(activeFromBranchVisual(progressFromPreview()));
+        commitActive(activeFromScrollTop(previewScroll.scrollTop));
         return;
       }
       const v = progressFromPreview();
@@ -540,7 +585,11 @@ export function mountRadialMenu(root: HTMLElement) {
     "scroll",
     () => {
       if (programmatic) return;
-      if (!isMobile() && driver !== "preview") return;
+      if (isMobile()) {
+        scheduleMobileActive();
+        return;
+      }
+      if (driver !== "preview") return;
       schedulePreviewPaint();
     },
     { passive: true },
@@ -623,8 +672,15 @@ export function mountRadialMenu(root: HTMLElement) {
   // --- Programmatic navigation (clicks / keyboard / hash) ---------------------
   const goToProject = (target: SectionDatum, instant = prefersReducedMotion()) => {
     if (isMobile()) {
-      target.el.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "start" });
+      programmatic = true;
+      previewScroll.scrollTo({
+        top: target.el.offsetTop,
+        behavior: instant ? "auto" : "smooth",
+      });
       commitActive(target);
+      requestAnimationFrame(() => {
+        programmatic = false;
+      });
       return;
     }
     driver = "fan";
@@ -648,7 +704,7 @@ export function mountRadialMenu(root: HTMLElement) {
 
   const goToCategory = (mainIdx: number) => {
     const target = firstSectionInCategory.get(mainIdx);
-    if (target) goToProject(target);
+    if (target) goToProject(target, isMobile() || prefersReducedMotion());
   };
 
   track.addEventListener("click", (e) => {
@@ -670,7 +726,7 @@ export function mountRadialMenu(root: HTMLElement) {
   mobileProjects.forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.projectId;
-      if (id) goToProjectId(id);
+      if (id) goToProjectId(id, isMobile() || prefersReducedMotion());
     });
   });
 
@@ -689,9 +745,9 @@ export function mountRadialMenu(root: HTMLElement) {
     if (id && isValidProjectId(id) && id !== lastProjectId) goToProjectId(id, true);
   });
 
-  // --- Gallery reveal + video autoplay ----------------------------------------
+  // --- Gallery reveal + video autoplay (desktop only; mobile uses syncMobileVideos) ---
   const galleryFigures = [...previewScroll.querySelectorAll<HTMLElement>(".radial-project__figure")];
-  if (galleryFigures.length) {
+  if (galleryFigures.length && !isMobile()) {
     const galleryObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -719,22 +775,33 @@ export function mountRadialMenu(root: HTMLElement) {
     requestAnimationFrame(() => {
       remeasureQueued = false;
       computeMetrics();
-      if (isMobile()) commitActive(activeFromBranchVisual(progressFromPreview()));
-      else if (driver === "preview") schedulePreviewPaint();
+      if (isMobile()) {
+        if (!programmatic) commitActive(activeFromScrollTop(previewScroll.scrollTop));
+      } else if (driver === "preview") {
+        schedulePreviewPaint();
+      }
     });
   };
 
   if ("ResizeObserver" in window) {
     const ro = new ResizeObserver(scheduleRemeasure);
-    projectSections.forEach((section) => ro.observe(section));
+    if (isMobile()) {
+      ro.observe(previewScroll);
+    } else {
+      projectSections.forEach((section) => ro.observe(section));
+    }
   }
 
   const relayout = () => {
+    if (isMobile()) {
+      computeMetrics();
+      commitActive(activeFromScrollTop(previewScroll.scrollTop));
+      return;
+    }
     cachedMaxHeroW = 0;
     computeGeometry();
     computeMetrics();
-    if (isMobile()) commitActive(activeFromBranchVisual(progressFromPreview()));
-    else paintFan(driver === "preview" ? progressFromPreview() : fanPos, true);
+    paintFan(driver === "preview" ? progressFromPreview() : fanPos, true);
   };
 
   window.addEventListener("resize", relayout);
@@ -742,8 +809,12 @@ export function mountRadialMenu(root: HTMLElement) {
   document.fonts?.ready.then(relayout).catch(() => {});
 
   // --- Boot -------------------------------------------------------------------
-  computeGeometry();
-  computeMetrics();
+  if (isMobile()) {
+    computeMetrics();
+  } else {
+    computeGeometry();
+    computeMetrics();
+  }
 
   const initialId = window.location.hash.slice(1);
   const initialTarget =
@@ -753,7 +824,7 @@ export function mountRadialMenu(root: HTMLElement) {
   if (initialTarget) {
     goToProject(initialTarget, true);
   } else if (isMobile()) {
-    commitActive(sectionData[0] ?? activeFromBranchVisual(0));
+    commitActive(sectionData[0] ?? activeFromScrollTop(0));
   } else {
     fanPos = fanTarget = minVis;
     paintFan(fanPos, true);

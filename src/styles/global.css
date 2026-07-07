@@ -14,6 +14,7 @@
   --type-display-md: clamp(1.875rem, 3vw, 2.5rem);
   --type-display-lg: clamp(2rem, 5.5vw, 4.75rem);
   --type-display-xl: clamp(2.25rem, 6vw, 5.25rem);
+  --type-site-mark: clamp(1.1rem, 1.6vw, 1.55rem);
   --leading-body: 1.5;
   --leading-ui: 1.4;
   font-family: var(--font-text);
@@ -57,9 +58,10 @@ main { min-height: calc(100vh - 3.5rem); }
 }
 
 .site-logo {
-  font-size: var(--type-ui);
+  font-family: var(--font-display);
+  font-size: var(--type-site-mark);
   font-weight: 400;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.01em;
 }
 
 .site-nav {

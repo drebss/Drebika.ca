@@ -72,7 +72,7 @@ import "../styles/home.css";
         </div>
       </div>
       <div class="radial-track" data-radial-track></div>
-      <p class="radial-name">Ahmed Drebika</p>
+      <a href="/" class="radial-name" aria-label="Ahmed Drebika home">Ahmed Drebika</a>
     </aside>
 
     <div class="radial-preview" data-radial-preview>
@@ -126,7 +126,7 @@ import "../styles/home.css";
                           muted
                           loop
                           playsinline
-                          preload="metadata"
+                          preload={slideIdx === 0 ? "metadata" : "none"}
                           data-autoplay-video
                         />
                       ) : (
