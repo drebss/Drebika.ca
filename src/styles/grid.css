@@ -32,7 +32,7 @@ body:has(.grid-home) .site-footer {
   align-items: baseline;
   justify-content: space-between;
   gap: 1rem 2rem;
-  padding: 1.25rem var(--pad);
+  padding: clamp(1.5rem, 3vw, 2.75rem) var(--pad) 1.25rem;
 }
 
 .grid-toolbar__title {
@@ -40,7 +40,7 @@ body:has(.grid-home) .site-footer {
   font-family: var(--font-display);
   font-size: var(--type-display-md);
   font-weight: 400;
-  letter-spacing: -0.03em;
+  letter-spacing: var(--tracking-tight);
   line-height: 1;
 }
 
@@ -59,10 +59,10 @@ body:has(.grid-home) .site-footer {
 
 .grid-index {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: clamp(1.25rem, 2.5vw, 2rem) clamp(1rem, 2vw, 1.5rem);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: clamp(1.75rem, 3vw, 2.75rem) clamp(1.25rem, 2vw, 2rem);
   align-items: start;
-  padding: clamp(1.5rem, 3vw, 2.5rem) var(--pad) clamp(2.5rem, 5vw, 4rem);
+  padding: clamp(1.5rem, 3vw, 2.5rem) var(--pad) clamp(3rem, 6vw, 5rem);
 }
 
 .grid-cell {
@@ -102,20 +102,21 @@ body:has(.grid-home) .site-footer {
 .grid-cell__caption {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  font-size: var(--type-meta);
+  gap: 0.25rem;
+  font-size: var(--type-ui);
   line-height: var(--leading-ui);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
 .grid-cell__index,
 .grid-cell__year {
+  font-size: var(--type-micro);
   color: var(--muted);
 }
 
 .grid-cell__title {
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .grid-cell__subtitle {

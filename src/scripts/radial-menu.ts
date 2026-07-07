@@ -11,6 +11,7 @@ export type RadialItem = {
   title: string;
   subtitle: string;
   description?: string;
+  descriptionHtml?: string;
   tags?: string[];
   count?: number;
   infoHref?: string;
@@ -26,6 +27,7 @@ type BranchEntry = {
   item: RadialItem;
   visualIndex: number;
   categoryStart: boolean;
+  categoryTitle: string;
 };
 
 type ActiveProject = { mainIdx: number; projectIdx: number };
@@ -43,16 +45,34 @@ type CategoryRange = { vStart: number; vEnd: number };
 type Geometry = { cx: number; baseR: number; mainRadius: number; branchRadius: number; cy: number };
 type Driver = "fan" | "preview";
 
+type FanItemMetrics = {
+  width: number;
+  height: number;
+  titleCenterY: number;
+  heightHero: number;
+  titleCenterYHero: number;
+  titleSpan: number;
+  fanSpan: number;
+  extentAbove: number;
+  extentBelow: number;
+};
+
+type AngleLadder = { visKeys: number[]; angles: number[] };
+
 const CONFIG = {
-  stepDeg: 16,
+  stepDeg: 17,
   mainRadiusMin: 0.36,
   mainRadiusMax: 0.58,
-  branchRingMin: 0.42,
-  radiusMax: 260,
-  radiusScale: 0.44,
+  branchRingMin: 0.52,
+  radiusMax: 280,
+  radiusScale: 0.45,
   categoryGap: 0.42,
   fadePower: 0.28,
   centerWindow: 0.38,
+  fanItemGap: 32,
+  categoryFanGap: 48,
+  mainFanGap: 34,
+  heroSnap: 0.06,
   // How far (fraction of a viewport) the fan stays locked on the active project
   // before handing off to the next while reading the preview.
   handoffFraction: 0.62,
@@ -76,6 +96,7 @@ function buildBranchIndex(tree: RadialItem[], gap: number): BranchEntry[] {
         item,
         visualIndex,
         categoryStart: projectIdx === 0,
+        categoryTitle: category.title,
       });
       visualIndex += 1;
     });
@@ -84,10 +105,7 @@ function buildBranchIndex(tree: RadialItem[], gap: number): BranchEntry[] {
   return entries;
 }
 
-function buildItemButton(col: 0 | 1, item: RadialItem, withMeta: boolean): HTMLButtonElement {
-  const count = item.slides?.length ?? item.count ?? 0;
-  const meta = withMeta && count ? `<span class="radial__meta">[${count}]</span>` : "";
-
+function buildItemButton(col: 0, item: RadialItem): HTMLButtonElement {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "radial__item";
@@ -96,7 +114,27 @@ function buildItemButton(col: 0 | 1, item: RadialItem, withMeta: boolean): HTMLB
   btn.innerHTML = `
     <span class="radial__title">${item.title}</span>
     <span class="radial__subtitle">${item.subtitle}</span>
-    ${meta}
+  `;
+  return btn;
+}
+
+function buildPostFanItem(entry: BranchEntry): HTMLButtonElement {
+  const { item } = entry;
+  const bodyMarkup = item.descriptionHtml
+    ? `<span class="radial-post__body">${item.descriptionHtml}</span>`
+    : item.description?.trim()
+      ? `<span class="radial-post__body">${item.description}</span>`
+      : "";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "radial__item radial-post";
+  btn.dataset.col = "1";
+  btn.dataset.id = item.id;
+  btn.innerHTML = `
+    <span class="radial-post__title">${item.title}</span>
+    <span class="radial-post__subtitle">${item.subtitle}</span>
+    ${bodyMarkup}
   `;
   return btn;
 }
@@ -119,6 +157,73 @@ function lerpAcross(x: number, xs: number[], ys: number[]): number {
   return ys[n - 1];
 }
 
+const measureButtonLayout = (
+  btn: HTMLButtonElement,
+  titleSelector: string,
+  activePrep: () => void,
+  activeCleanup: () => void,
+) => {
+  const measure = (prep?: () => void, cleanup?: () => void, compact = false) => {
+    const savedTransform = btn.style.transform;
+    const savedOpacity = btn.style.opacity;
+    prep?.();
+    if (compact) btn.classList.add("is-measuring-compact");
+    btn.style.transform = "translate3d(0,0,0) rotate(0deg)";
+    btn.style.opacity = "1";
+    const title = btn.querySelector<HTMLElement>(titleSelector);
+    const width = btn.offsetWidth;
+    const height = btn.offsetHeight;
+    const titleCenterY = title ? title.offsetTop + title.offsetHeight / 2 : height / 2;
+    const titleSpan = title ? title.offsetHeight + CONFIG.fanItemGap : height;
+    if (compact) btn.classList.remove("is-measuring-compact");
+    cleanup?.();
+    btn.style.transform = savedTransform;
+    btn.style.opacity = savedOpacity;
+    return { width, height, titleCenterY, titleSpan };
+  };
+
+  const compact = measure(undefined, undefined, true);
+  const active = measure(activePrep, activeCleanup, false);
+  const pad = CONFIG.fanItemGap;
+  const extentAbove = Math.max(compact.titleCenterY, active.titleCenterY) + pad * 0.65;
+  const extentBelow =
+    Math.max(compact.height - compact.titleCenterY, active.height - active.titleCenterY) +
+    pad * 0.65;
+  const fanSpan = extentAbove + extentBelow;
+  return {
+    width: Math.max(compact.width, active.width),
+    height: compact.height,
+    titleCenterY: compact.titleCenterY,
+    heightHero: active.height,
+    titleCenterYHero: active.titleCenterY,
+    titleSpan: compact.titleSpan,
+    fanSpan,
+    extentAbove,
+    extentBelow,
+  };
+};
+
+const buildAngleLadder = (
+  visKeys: number[],
+  extentsAbove: number[],
+  extentsBelow: number[],
+  R: number,
+  itemGap: number,
+  categoryGap = itemGap * 1.5,
+) => {
+  const angles = [0];
+  for (let i = 1; i < visKeys.length; i++) {
+    const span = visKeys[i] - visKeys[i - 1];
+    const gapExtra = span < 1 ? categoryGap : itemGap;
+    const arcSep = (extentsBelow[i - 1] + extentsAbove[i] + gapExtra) / R;
+    angles.push(angles[i - 1] + arcSep);
+  }
+  return { visKeys, angles };
+};
+
+const angleAtVisual = (vis: number, ladder: AngleLadder) =>
+  lerpAcross(vis, ladder.visKeys, ladder.angles);
+
 export function mountRadialMenu(root: HTMLElement) {
   const dataEl = root.querySelector<HTMLScriptElement>("[data-radial-data]");
   const track = root.querySelector<HTMLElement>("[data-radial-track]");
@@ -140,13 +245,13 @@ export function mountRadialMenu(root: HTMLElement) {
   const branchLayer = track.querySelector<HTMLElement>("[data-layer='branch']")!;
 
   const mainButtons = tree.map((item) => {
-    const btn = buildItemButton(0, item, false);
+    const btn = buildItemButton(0, item);
     mainLayer.appendChild(btn);
     return btn;
   });
 
   const branchButtons = branchEntries.map((entry) => {
-    const btn = buildItemButton(1, entry.item, true);
+    const btn = buildPostFanItem(entry);
     btn.dataset.mainIdx = String(entry.mainIdx);
     btn.dataset.projectIdx = String(entry.projectIdx);
     btn.dataset.visualIndex = String(entry.visualIndex);
@@ -223,6 +328,10 @@ export function mountRadialMenu(root: HTMLElement) {
   let previewClientH = 0;
   let sectionOffsets: number[] = [];
   let cachedMaxHeroW = 0;
+  let branchFanMetrics: FanItemMetrics[] = [];
+  let mainFanMetrics: FanItemMetrics[] = [];
+  let branchAngleLadder: AngleLadder = { visKeys: [], angles: [] };
+  let mainAngleLadder: AngleLadder = { visKeys: [], angles: [] };
   let driver: Driver = "fan";
   let fanPos = minVis; // rendered fan position (visual-index space)
   let fanTarget = minVis; // eased-toward goal
@@ -249,6 +358,64 @@ export function mountRadialMenu(root: HTMLElement) {
   const measureMaxMainWidth = () =>
     mainButtons.reduce((max, btn) => Math.max(max, btn.offsetWidth), 1);
 
+  const measureFanMetrics = () => {
+    mainFanMetrics = mainButtons.map((btn) =>
+      measureButtonLayout(
+        btn,
+        ".radial__title",
+        () => btn.classList.add("is-center"),
+        () => btn.classList.remove("is-center"),
+      ),
+    );
+
+    branchFanMetrics = branchButtons.map((btn) =>
+      measureButtonLayout(
+        btn,
+        ".radial-post__title",
+        () => btn.classList.add("is-hero"),
+        () => btn.classList.remove("is-hero"),
+      ),
+    );
+  };
+
+  const rebuildAngleLadders = () => {
+    const branchVis = branchEntries.map((entry) => entry.visualIndex);
+    const branchAbove = branchFanMetrics.map((m) => m.extentAbove);
+    const branchBelow = branchFanMetrics.map((m) => m.extentBelow);
+    const branchR = geom.baseR * geom.branchRadius;
+    if (branchVis.length && branchR > 0) {
+      branchAngleLadder = buildAngleLadder(
+        branchVis,
+        branchAbove,
+        branchBelow,
+        branchR,
+        CONFIG.fanItemGap,
+        CONFIG.categoryFanGap,
+      );
+    }
+
+    const mainVis = mainButtons.map((_, i) => i);
+    const mainAbove = mainFanMetrics.map((m) => m.extentAbove);
+    const mainBelow = mainFanMetrics.map((m) => m.extentBelow);
+    const mainR = geom.baseR * geom.mainRadius;
+    if (mainVis.length && mainR > 0) {
+      mainAngleLadder = buildAngleLadder(
+        mainVis,
+        mainAbove,
+        mainBelow,
+        mainR,
+        CONFIG.mainFanGap,
+      );
+    }
+  };
+
+  const finalizeFanLayout = () => {
+    cachedMaxHeroW = 0;
+    measureFanMetrics();
+    cachedMaxHeroW = measureMaxHeroWidth();
+    rebuildAngleLadders();
+  };
+
   const measureMaxHeroWidth = () => {
     let max = 1;
     branchButtons.forEach((btn) => {
@@ -256,7 +423,7 @@ export function mountRadialMenu(root: HTMLElement) {
       const savedOpacity = btn.style.opacity;
       const wasHero = btn.classList.contains("is-hero");
       btn.classList.add("is-hero");
-      btn.style.transform = "translate3d(0,0,0) translateY(-50%) rotate(0deg)";
+      btn.style.transform = "translate3d(0,0,0) rotate(0deg)";
       btn.style.opacity = "1";
       max = Math.max(max, btn.offsetWidth);
       btn.classList.toggle("is-hero", wasHero);
@@ -267,7 +434,10 @@ export function mountRadialMenu(root: HTMLElement) {
   };
 
   const getMaxHeroWidth = () => {
-    if (cachedMaxHeroW <= 0) cachedMaxHeroW = measureMaxHeroWidth();
+    if (cachedMaxHeroW <= 0) {
+      measureFanMetrics();
+      cachedMaxHeroW = measureMaxHeroWidth();
+    }
     return cachedMaxHeroW;
   };
 
@@ -279,7 +449,6 @@ export function mountRadialMenu(root: HTMLElement) {
     const nameArcGap = readCssLength("--orbit-name-gap", gap * 0.7);
     const baseR = Math.min(height * CONFIG.radiusScale, CONFIG.radiusMax);
     const cy = height / 2;
-    // Pivot on the name; inner arc sits one balanced gutter past the name edge.
     const nameW = nameEl?.offsetWidth ?? 0;
     const cx = gap + nameW / 2;
     const maxMainW = measureMaxMainWidth();
@@ -292,14 +461,27 @@ export function mountRadialMenu(root: HTMLElement) {
 
     geom = { cx, baseR, mainRadius, branchRadius, cy };
 
-    if (nameEl) {
-      nameEl.style.left = `${cx}px`;
-      nameEl.style.top = `${cy}px`;
+    // Pass 1: measure with default constraints to size the stage column.
+    const heroW = getMaxHeroWidth();
+    const heroX = cx + baseR * branchRadius;
+    const stageW = Math.ceil(heroX + heroW + gap);
+    const maxStage = Math.floor(window.innerWidth * 0.52);
+    const actualStage = Math.min(stageW, maxStage);
+    const availableHeroW = Math.max(actualStage - heroX - gap, 160);
+    if (actualStage > 0) {
+      root.style.setProperty("--orbit-stage-w", `${actualStage}px`);
+      root.style.setProperty("--orbit-hero-w", `${Math.min(heroW, availableHeroW)}px`);
     }
 
-    const heroX = cx + baseR * branchRadius;
-    const stageW = Math.ceil(heroX + getMaxHeroWidth() + gap);
-    if (stageW > 0) root.style.setProperty("--orbit-stage-w", `${stageW}px`);
+    // Pass 2: remeasure with final column width, then rebuild size-aware fan angles.
+    finalizeFanLayout();
+
+    if (nameEl) {
+      const nameH = nameEl.offsetHeight;
+      nameEl.style.left = `${cx}px`;
+      nameEl.style.top = `${cy}px`;
+      nameEl.style.transform = `translate(-50%, -${nameH / 2}px)`;
+    }
   };
 
   const computeMetrics = () => {
@@ -383,19 +565,19 @@ export function mountRadialMenu(root: HTMLElement) {
   };
 
   // --- Painting ---------------------------------------------------------------
-  const layoutItem = (colIndex: 0 | 1, itemIndex: number, scroll: number) => {
-    const delta = itemIndex + scroll;
+  const layoutOnRing = (
+    colIndex: 0 | 1,
+    itemVis: number,
+    centerVis: number,
+    ladder: AngleLadder,
+    centerWindowScale: number,
+  ) => {
+    const theta =
+      angleAtVisual(itemVis, ladder) - angleAtVisual(centerVis, ladder);
     const R = geom.baseR * (colIndex === 0 ? geom.mainRadius : geom.branchRadius);
-    const branchStep = (CONFIG.stepDeg * Math.PI) / 180;
-    // Inner ring is tighter — widen its step so arc length and tilt match the branch.
-    const step =
-      colIndex === 0 ? branchStep * (geom.branchRadius / geom.mainRadius) : branchStep;
-    const theta = delta * step;
+    const delta = itemVis - centerVis;
     const absDelta = Math.abs(delta);
-    const centerWindow =
-      colIndex === 0
-        ? CONFIG.centerWindow * (geom.mainRadius / geom.branchRadius)
-        : CONFIG.centerWindow;
+    const centerWindow = CONFIG.centerWindow * centerWindowScale;
     return {
       x: geom.cx + R * Math.cos(theta),
       y: geom.cy + R * Math.sin(theta),
@@ -408,25 +590,36 @@ export function mountRadialMenu(root: HTMLElement) {
 
   const paintItem = (
     el: HTMLButtonElement,
-    layout: ReturnType<typeof layoutItem>,
-    opts: { dimmed?: boolean; active?: boolean; branch?: boolean },
+    layout: ReturnType<typeof layoutOnRing>,
+    opts: {
+      dimmed?: boolean;
+      active?: boolean;
+      branch?: boolean;
+      hero?: boolean;
+      metrics: FanItemMetrics;
+    },
   ) => {
     let alpha = layout.opacity;
     if (opts.dimmed) alpha *= 0.38;
     if (opts.branch) alpha *= 0.92;
     const hidden = alpha <= 0.02;
     const opacity = hidden ? "0" : String(alpha);
-    const transform = `translate3d(${layout.x}px, ${layout.y}px, 0) translateY(-50%) rotate(${layout.rotation}deg)`;
+    const isHero = !!(opts.branch && opts.hero);
+    const isMainHero = !opts.branch && !!opts.hero;
+    const titleCY =
+      isHero || isMainHero ? opts.metrics.titleCenterYHero : opts.metrics.titleCenterY;
+    const transform = `translate3d(${layout.x}px, ${layout.y}px, 0) rotate(${layout.rotation}deg) translate3d(0, ${-titleCY}px, 0)`;
     const zIndex = String(Math.round(30 - Math.abs(layout.delta) * 4));
     const pointerEvents = hidden ? "none" : "auto";
 
+    if (el.style.transformOrigin !== "0 0") el.style.transformOrigin = "0 0";
     if (el.style.transform !== transform) el.style.transform = transform;
     if (el.style.opacity !== opacity) el.style.opacity = opacity;
     if (el.style.zIndex !== zIndex) el.style.zIndex = zIndex;
     if (el.style.pointerEvents !== pointerEvents) el.style.pointerEvents = pointerEvents;
     el.classList.toggle("is-center", layout.center);
     el.classList.toggle("is-active", !!opts.active);
-    el.classList.toggle("is-hero", !!(opts.branch && layout.center));
+    el.classList.toggle("is-hero", isHero);
   };
 
   const syncPreviewActive = (active: SectionDatum) => {
@@ -496,19 +689,51 @@ export function mountRadialMenu(root: HTMLElement) {
     const active = activeFromBranchVisual(branchVisual);
 
     mainButtons.forEach((btn, i) => {
-      paintItem(btn, layoutItem(0, i, -mainPos), {
+      const layout = layoutOnRing(
+        0,
+        i,
+        mainPos,
+        mainAngleLadder,
+        geom.mainRadius / geom.branchRadius,
+      );
+      paintItem(btn, layout, {
         dimmed: branchEntries.length > 0,
         active: i === active.mainIdx,
+        hero: i === active.mainIdx,
+        metrics: mainFanMetrics[i] ?? {
+          width: 1,
+          height: 1,
+          titleCenterY: 0.5,
+          heightHero: 1,
+          titleCenterYHero: 0.5,
+          titleSpan: 1,
+          fanSpan: 1,
+          extentAbove: 1,
+          extentBelow: 1,
+        },
       });
     });
 
-    branchButtons.forEach((btn) => {
+    branchButtons.forEach((btn, i) => {
       const visualIndex = Number(btn.dataset.visualIndex);
-      paintItem(btn, layoutItem(1, visualIndex, -branchVisual), {
+      const layout = layoutOnRing(1, visualIndex, branchVisual, branchAngleLadder, 1);
+      paintItem(btn, layout, {
         branch: true,
         active:
           Number(btn.dataset.mainIdx) === active.mainIdx &&
           Number(btn.dataset.projectIdx) === active.projectIdx,
+        hero: visualIndex === active.visualIndex,
+        metrics: branchFanMetrics[i] ?? {
+          width: 1,
+          height: 1,
+          titleCenterY: 0.5,
+          heightHero: 1,
+          titleCenterYHero: 0.5,
+          titleSpan: 1,
+          fanSpan: 1,
+          extentAbove: 1,
+          extentBelow: 1,
+        },
       });
     });
 
